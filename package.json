@@ -1,0 +1,28 @@
+{
+  "name": "wc-26",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "seed": "node scripts/seed.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
+    "grammy": "^1.43.0",
+    "hono": "^4.12.23",
+    "satori": "^0.26.0",
+    "yoga-wasm-web": "^0.3.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260605.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.98.0"
+  }
+}

@@ -1,0 +1,21 @@
+name = "wc26-bot"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# TELEGRAM_BOT_TOKEN and FOOTBALL_DATA_API_KEY to be set in production via `wrangler secret put`
+
+[[d1_databases]]
+binding = "DB"
+database_name = "wc26-db"
+database_id = "c396b979-8bef-4737-91d2-e843d8208351" # To be replaced after `wrangler d1 create`
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["* * * * *", "30 20 * * *"] # Every minute, and Daily at 20:30 UTC (00:00 Tehran)
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true

@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Cloudflare Wrangler files
+.wrangler/
+.dev.vars
+
+# Build outputs
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
