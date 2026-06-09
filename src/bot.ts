@@ -357,13 +357,16 @@ export function setupBot(env: Env, origin?: string) {
     } else if (text === '🌟Team Profile') {
       await ctx.reply('Please send the country name or FIFA code (e.g. Germany or GER) to view its info and stats.');
     } else {
-      // Check if the text matches a country name/code
-      const team = await db.getTeamByNameOrCode(text);
-      if (team) {
-        await handleState(ctx, db, team.name);
-      } else {
-        await next();
+      // Only do database lookups for random text in private chats.
+      // Doing this in group chats overloads the DB for every normal user message.
+      if (ctx.chat.type === 'private') {
+        const team = await db.getTeamByNameOrCode(text);
+        if (team) {
+          await handleState(ctx, db, team.name);
+          return;
+        }
       }
+      await next();
     }
   });
 
