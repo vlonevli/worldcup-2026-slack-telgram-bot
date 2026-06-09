@@ -51,12 +51,12 @@ async function main() {
         }
 
         const codepoint = hexParts.join('-');
-        const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/${codepoint}.svg`;
-        const dest = path.join(flagsDir, `${team.fifa_code}.svg`);
+        const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${codepoint}.png`;
+        const dest = path.join(flagsDir, `${team.fifa_code}.png`);
 
         try {
             await download(url, dest);
-            console.log(`Saved ${team.fifa_code}.svg (${team.name})`);
+            console.log(`Saved ${team.fifa_code}.png (${team.name})`);
         } catch (e) {
             console.error(`Failed to download ${url}: ${e.message}`);
         }

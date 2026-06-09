@@ -184,7 +184,7 @@ const LORE_MAP: Record<string, string> = {
   'Croatia': 'Croatia has consistently punched above their weight, finishing as runners-up in 2018 and third in 1998 and 2022, led by their legendary midfield generation.'
 };
 
-async function getTeamProfileText(db: DBClient, countryQuery: string): Promise<string> {
+async function getTeamProfileText(db: DBClient, countryQuery: string, includeLore: boolean = true): Promise<string> {
   const team = await db.getTeamByNameOrCode(countryQuery);
   if (!team) {
     return `❌ Could not find a team matching "${countryQuery}". Please check the spelling or FIFA code.`;
@@ -196,8 +196,12 @@ async function getTeamProfileText(db: DBClient, countryQuery: string): Promise<s
   const nextMatch = await db.getTeamNextMatch(team.name);
 
   // Get lore
-  const lore = LORE_MAP[team.name] ||
-    `Representing ${team.confed} from ${team.continent}, ${team.name} enters the World Cup 2026 placed in ${team.group_name}, ready to compete against the best teams in the world.`;
+  let loreSection = '';
+  if (includeLore) {
+    const lore = LORE_MAP[team.name] ||
+      `Representing ${team.confed} from ${team.continent}, ${team.name} enters the World Cup 2026 placed in ${team.group_name}, ready to compete against the best teams in the world.`;
+    loreSection = `\n📖 *Lore:*\n${lore}\n`;
+  }
 
   // Format Ordinal position (e.g. 1st, 2nd, 3rd, 4th)
   const getOrdinal = (n: number) => {
@@ -258,10 +262,7 @@ async function getTeamProfileText(db: DBClient, countryQuery: string): Promise<s
 🌍 *Continent:* ${team.continent}
 📡 *Confederation:* ${team.confed}
 📊 *Group:* ${team.group_name}
-
-📖 *Lore:*
-${lore}
-
+${loreSection}
 📈 *Tournament Stats:*
 • *Matches Played:* ${stats.played}
 • *Wins:* ${stats.wins}
@@ -373,15 +374,15 @@ export function setupBot(env: Env, origin?: string) {
     const teams = await db.searchTeamsForInline(query);
 
     const results = await Promise.all(teams.map(async (t, index) => {
-      const messageText = await getTeamProfileText(db, t.name);
+      const messageText = await getTeamProfileText(db, t.name, false);
       return {
         type: 'article',
         id: String(index),
         title: `${t.flag_icon} ${t.name} (${t.fifa_code})`,
         description: `Points: ${t.points} | GD: ${t.gd}`,
-        thumbnail_url: origin ? `${origin}/flags/${t.fifa_code}.svg` : undefined,
-        thumbnail_width: 64,
-        thumbnail_height: 64,
+        thumbnail_url: origin ? `${origin}/flags/${t.fifa_code}.png` : undefined,
+        thumbnail_width: 72,
+        thumbnail_height: 72,
         input_message_content: {
           message_text: messageText,
           parse_mode: 'Markdown'
@@ -389,7 +390,7 @@ export function setupBot(env: Env, origin?: string) {
       };
     }));
 
-    await ctx.answerInlineQuery(results as any, { cache_time: 10 });
+    await ctx.answerInlineQuery(results as any, { cache_time: 86400 });
   });
 
   return bot;

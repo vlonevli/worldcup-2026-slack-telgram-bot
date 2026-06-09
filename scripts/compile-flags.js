@@ -14,9 +14,10 @@ function main() {
     const flags = {};
 
     for (const file of files) {
-        if (file.endsWith('.svg')) {
-            const code = path.basename(file, '.svg').toUpperCase();
-            const content = fs.readFileSync(path.join(flagsDir, file), 'utf8');
+        if (file.endsWith('.png')) {
+            const code = path.basename(file, '.png').toUpperCase();
+            // Read as base64
+            const content = fs.readFileSync(path.join(flagsDir, file), 'base64');
             flags[code] = content;
         }
     }

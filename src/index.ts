@@ -9,14 +9,22 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.get('/flags/:filename', (c) => {
   const filename = c.req.param('filename');
-  const code = filename.replace('.svg', '').toUpperCase();
-  const svg = flagsData[code];
-  if (!svg) {
+  const code = filename.replace('.png', '').toUpperCase();
+  const base64 = flagsData[code];
+  if (!base64) {
     return c.notFound();
   }
-  return c.body(svg, 200, {
-    'Content-Type': 'image/svg+xml',
-    'Cache-Control': 'public, max-age=86400'
+
+  // Decode base64 to binary
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  return c.body(bytes, 200, {
+    'Content-Type': 'image/png',
+    'Cache-Control': 'public, max-age=604800' // 1 week cache
   });
 });
 
