@@ -3,12 +3,26 @@ import { webhookCallback } from 'grammy';
 import { setupBot } from './bot';
 import { Env } from './db';
 import { syncMatches } from './sync';
+import { flagsData } from './flagsData';
 
 const app = new Hono<{ Bindings: Env }>();
 
+app.get('/flags/:code.svg', (c) => {
+  const code = c.req.param('code').toUpperCase();
+  const svg = flagsData[code];
+  if (!svg) {
+    return c.notFound();
+  }
+  return c.body(svg, 200, {
+    'Content-Type': 'image/svg+xml',
+    'Cache-Control': 'public, max-age=86400'
+  });
+});
+
 app.post('/webhook', async (c) => {
   try {
-    const bot = setupBot(c.env);
+    const origin = new URL(c.req.url).origin;
+    const bot = setupBot(c.env, origin);
     const handler = webhookCallback(bot, 'cloudflare-mod');
     return await handler(c.req.raw);
   } catch (e: any) {

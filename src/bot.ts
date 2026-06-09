@@ -184,16 +184,10 @@ const LORE_MAP: Record<string, string> = {
   'Croatia': 'Croatia has consistently punched above their weight, finishing as runners-up in 2018 and third in 1998 and 2022, led by their legendary midfield generation.'
 };
 
-async function handleState(ctx: any, db: DBClient, countryQuery: string) {
-  if (!countryQuery) {
-    await ctx.reply('Please specify a country name or FIFA code.\nExample: `/state Germany` or `/state GER`', { parse_mode: 'Markdown' });
-    return;
-  }
-
+async function getTeamProfileText(db: DBClient, countryQuery: string): Promise<string> {
   const team = await db.getTeamByNameOrCode(countryQuery);
   if (!team) {
-    await ctx.reply(`❌ Could not find a team matching "${countryQuery}". Please check the spelling or FIFA code.`);
-    return;
+    return `❌ Could not find a team matching "${countryQuery}". Please check the spelling or FIFA code.`;
   }
 
   const stats = await db.getTeamStats(team.name);
@@ -259,7 +253,7 @@ async function handleState(ctx: any, db: DBClient, countryQuery: string) {
     nextMatchText = `⚽ *${nextMatch.team1_name}* ${scoreText} *${nextMatch.team2_name}*\n📅 *Date:* ${nextMatch.date}\n🕒 *Time:* ${nextMatch.time_str} | 🏟️ ${nextMatch.ground}${countdownText}`;
   }
 
-  const message = `🏆 *${team.flag_icon} ${team.name} (${team.fifa_code}) Info*
+  return `🏆 *${team.flag_icon} ${team.name} (${team.fifa_code}) Info*
 
 🌍 *Continent:* ${team.continent}
 📡 *Confederation:* ${team.confed}
@@ -280,11 +274,19 @@ ${lastMatchText}
 
 ⏭️ *Next Match:*
 ${nextMatchText}`;
+}
 
+async function handleState(ctx: any, db: DBClient, countryQuery: string) {
+  if (!countryQuery) {
+    await ctx.reply('Please specify a country name or FIFA code.\nExample: `/state Germany` or `/state GER`', { parse_mode: 'Markdown' });
+    return;
+  }
+
+  const message = await getTeamProfileText(db, countryQuery);
   await ctx.reply(message, { parse_mode: 'Markdown' });
 }
 
-export function setupBot(env: Env) {
+export function setupBot(env: Env, origin?: string) {
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN || '1234:dummy');
 
   bot.command('start', async (ctx) => {
@@ -362,6 +364,32 @@ export function setupBot(env: Env) {
         await next();
       }
     }
+  });
+
+  // Inline query handler
+  bot.on('inline_query', async (ctx) => {
+    const query = ctx.inlineQuery.query;
+    const db = new DBClient(env.DB);
+    const teams = await db.searchTeamsForInline(query);
+
+    const results = await Promise.all(teams.map(async (t, index) => {
+      const messageText = await getTeamProfileText(db, t.name);
+      return {
+        type: 'article',
+        id: String(index),
+        title: `${t.flag_icon} ${t.name} (${t.fifa_code})`,
+        description: `Points: ${t.points} | GD: ${t.gd}`,
+        thumbnail_url: origin ? `${origin}/flags/${t.fifa_code}.svg` : undefined,
+        thumbnail_width: 64,
+        thumbnail_height: 64,
+        input_message_content: {
+          message_text: messageText,
+          parse_mode: 'Markdown'
+        }
+      };
+    }));
+
+    await ctx.answerInlineQuery(results as any, { cache_time: 10 });
   });
 
   return bot;

@@ -221,4 +221,41 @@ export class DBClient {
        ORDER BY kickoff_utc ASC LIMIT 1`
     ).bind(teamName, teamName).first<Match>();
   }
+
+  async searchTeamsForInline(query: string): Promise<any[]> {
+    const cleanQuery = query.trim();
+    const normalised = cleanQuery.toLowerCase();
+    
+    let sql = `
+      SELECT t.name, t.fifa_code, t.flag_icon, t.group_name,
+             COALESCE(s.points, 0) as points,
+             COALESCE(s.goal_difference, 0) as gd,
+             COALESCE(s.goals_for, 0) as gf
+      FROM teams t
+      LEFT JOIN standings s ON t.name = s.team_name
+    `;
+    
+    let results;
+    if (cleanQuery.length > 0) {
+      sql += `
+        WHERE t.name_normalised LIKE ? OR t.fifa_code LIKE ? OR t.name LIKE ?
+        ORDER BY points DESC, gd DESC, gf DESC, t.name ASC
+        LIMIT 20
+      `;
+      const searchPattern = `%${normalised}%`;
+      const codePattern = `%${cleanQuery.toUpperCase()}%`;
+      const origPattern = `%${cleanQuery}%`;
+      const res = await this.db.prepare(sql).bind(searchPattern, codePattern, origPattern).all();
+      results = res.results;
+    } else {
+      sql += `
+        ORDER BY points DESC, gd DESC, gf DESC, t.name ASC
+        LIMIT 20
+      `;
+      const res = await this.db.prepare(sql).all();
+      results = res.results;
+    }
+    
+    return results || [];
+  }
 }
