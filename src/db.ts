@@ -233,12 +233,13 @@ export class DBClient {
              COALESCE(s.goals_for, 0) as gf
       FROM teams t
       LEFT JOIN standings s ON t.name = s.team_name
+      WHERE t.group_name != 'Placeholder'
     `;
     
     let results;
     if (cleanQuery.length > 0) {
       sql += `
-        WHERE t.name_normalised LIKE ? OR t.fifa_code LIKE ? OR t.name LIKE ?
+        AND (t.name_normalised LIKE ? OR t.fifa_code LIKE ? OR t.name LIKE ?)
         ORDER BY points DESC, gd DESC, gf DESC, t.name ASC
         LIMIT 20
       `;

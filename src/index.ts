@@ -7,8 +7,9 @@ import { flagsData } from './flagsData';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.get('/flags/:code.svg', (c) => {
-  const code = c.req.param('code').toUpperCase();
+app.get('/flags/:filename', (c) => {
+  const filename = c.req.param('filename');
+  const code = filename.replace('.svg', '').toUpperCase();
   const svg = flagsData[code];
   if (!svg) {
     return c.notFound();

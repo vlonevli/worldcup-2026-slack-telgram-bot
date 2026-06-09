@@ -294,7 +294,7 @@ export function setupBot(env: Env, origin?: string) {
     if (['private', 'group', 'supergroup', 'channel'].includes(ctx.chat.type)) {
       await db.addSubscription(ctx.chat.id, ctx.chat.type, ctx.chat.title || ctx.chat.first_name || 'Unknown');
       await ctx.reply(
-        "🏆 Welcome to World Cup 2026 Bot!\n\nStay updated with live scores, match schedules, group standings, team statistics, and real-time tournament updates throughout FIFA World Cup 2026.\n\nUse the menu below to get started and follow every moment of the tournament.",
+        "🏆 Welcome to World Cup 2026 Bot!\n\nStay updated with live scores, match schedules, group standings, team statistics, and real-time tournament updates throughout FIFA World Cup 2026.\n\nUse the menu below to get started and follow every moment of the tournament.\nuse inline mode for fast search by typing bot username + space + country name eg. @WorldC26bot Germany",
         { reply_markup: mainKeyboard }
       );
     }
