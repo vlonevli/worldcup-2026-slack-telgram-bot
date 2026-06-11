@@ -57,26 +57,32 @@ export async function syncMatches(env: Env) {
 
           const dbMatch = dbMatches && dbMatches[0];
           if (dbMatch) {
+            const isDbLive = dbMatch.status === 'IN_PLAY' || dbMatch.status === 'LIVE';
+            const isApiLive = status === 'IN_PLAY' || status === 'LIVE';
+
             // Check if score changed (Goal!)
-            if (dbMatch.status !== 'SCHEDULED' && status === 'IN_PLAY') {
-              if (dbMatch.score_team1 !== null && score1 > dbMatch.score_team1) {
+            if (isApiLive) {
+              const prevScore1 = dbMatch.score_team1 ?? 0;
+              const prevScore2 = dbMatch.score_team2 ?? 0;
+
+              if (score1 > prevScore1) {
                 const text = `⚽ *GOAL!*\n\n${dbMatch.team1_name} scored against ${dbMatch.team2_name}!\n\nScore: ${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}`;
                 for (const sub of subs) { try { await bot.api.sendMessage(sub.chat_id, text, { parse_mode: 'Markdown' }); } catch(e){} }
               }
-              if (dbMatch.score_team2 !== null && score2 > dbMatch.score_team2) {
+              if (score2 > prevScore2) {
                 const text = `⚽ *GOAL!*\n\n${dbMatch.team2_name} scored against ${dbMatch.team1_name}!\n\nScore: ${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}`;
                 for (const sub of subs) { try { await bot.api.sendMessage(sub.chat_id, text, { parse_mode: 'Markdown' }); } catch(e){} }
               }
             }
 
             // Status transitions (Kickoff, Halftime, Fulltime)
-            if (dbMatch.status === 'SCHEDULED' && status === 'IN_PLAY') {
+            if (dbMatch.status === 'SCHEDULED' && isApiLive) {
                const text = `⏱️ *KICKOFF!*\n\nThe match between ${dbMatch.team1_name} and ${dbMatch.team2_name} has started!`;
                for (const sub of subs) { try { await bot.api.sendMessage(sub.chat_id, text, { parse_mode: 'Markdown' }); } catch(e){} }
-            } else if (dbMatch.status === 'IN_PLAY' && status === 'PAUSED') {
+            } else if (isDbLive && status === 'PAUSED') {
                const text = `⏸️ *HALF TIME*\n\n${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}`;
                for (const sub of subs) { try { await bot.api.sendMessage(sub.chat_id, text, { parse_mode: 'Markdown' }); } catch(e){} }
-            } else if ((dbMatch.status === 'IN_PLAY' || dbMatch.status === 'PAUSED') && status === 'FINISHED') {
+            } else if ((isDbLive || dbMatch.status === 'PAUSED') && status === 'FINISHED') {
                const text = `🏁 *FULL TIME*\n\n${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}`;
                for (const sub of subs) { try { await bot.api.sendMessage(sub.chat_id, text, { parse_mode: 'Markdown' }); } catch(e){} }
             }

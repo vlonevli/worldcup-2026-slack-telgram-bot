@@ -1,11 +1,50 @@
 import { Bot, Keyboard, InlineKeyboard } from 'grammy';
 import { Env, DBClient, Match } from './db';
 
+function formatTimeForTimezone(kickoffUtc: number, tz: string): string {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(new Date(kickoffUtc));
+    const month = parts.find(p => p.type === 'month')?.value;
+    const day = parts.find(p => p.type === 'day')?.value;
+    const year = parts.find(p => p.type === 'year')?.value;
+    const hour = parts.find(p => p.type === 'hour')?.value;
+    const minute = parts.find(p => p.type === 'minute')?.value;
+    return `${year}-${month}-${day} ${hour}:${minute} (${tz})`;
+  } catch (e) {
+    return new Date(kickoffUtc).toISOString().replace('T', ' ').substring(0, 16) + ' (UTC)';
+  }
+}
+
+function getMatchTimeStr(m: Match, tz?: string): string {
+  if (tz && tz !== 'UTC') {
+    return formatTimeForTimezone(m.kickoff_utc, tz);
+  }
+  return m.time_str;
+}
+
+function isValidTimezone(tz: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Main Reply Keyboard
 const mainKeyboard = new Keyboard()
   .text('🏆 Matches Today').text('🗓️ Next Match').row()
   .text('📊 Standings').text('📡 Live Matches').row()
-  .text('🌟Team Profile')
+  .text('🌟Team Profile').text('⚙️ Settings')
   .resized();
 
 // Inline Keyboard for Groups A-L
@@ -15,7 +54,17 @@ const groupsKeyboard = new InlineKeyboard()
   .text('Group G', 'group_standings:G').text('Group H', 'group_standings:H').text('Group I', 'group_standings:I').row()
   .text('Group J', 'group_standings:J').text('Group K', 'group_standings:K').text('Group L', 'group_standings:L');
 
+// Timezone Inline Keyboard
+const timezoneKeyboard = new InlineKeyboard()
+  .text('UTC', 'set_tz:UTC').text('London', 'set_tz:Europe/London').text('Paris', 'set_tz:Europe/Paris').row()
+  .text('Tehran', 'set_tz:Asia/Tehran').text('Dubai', 'set_tz:Asia/Dubai').text('Kolkata', 'set_tz:Asia/Kolkata').row()
+  .text('Singapore', 'set_tz:Asia/Singapore').text('Tokyo', 'set_tz:Asia/Tokyo').text('New York', 'set_tz:America/New_York').row()
+  .text('Chicago', 'set_tz:America/Chicago').text('Denver', 'set_tz:America/Denver').text('Los Angeles', 'set_tz:America/Los_Angeles');
+
 async function handleToday(ctx: any, db: DBClient) {
+  const sub = await db.getSubscription(ctx.chat.id);
+  const userTz = sub?.timezone || 'UTC';
+
   const matches = await db.getMatchesToday();
   if (matches.length === 0) {
     await ctx.reply('No matches scheduled for today.');
@@ -24,12 +73,16 @@ async function handleToday(ctx: any, db: DBClient) {
   let text = '🏆 *Matches Today:*\n\n';
   matches.forEach(m => {
     const score = m.score_team1 !== null ? `(${m.score_team1} - ${m.score_team2})` : 'vs';
-    text += `⚽ *${m.team1_name}* ${score} *${m.team2_name}*\n🕒 ${m.time_str} | 🏟️ ${m.ground}\n\n`;
+    const timeFormatted = getMatchTimeStr(m, userTz);
+    text += `⚽ *${m.team1_name}* ${score} *${m.team2_name}*\n🕒 ${timeFormatted} | 🏟️ ${m.ground}\n\n`;
   });
   await ctx.reply(text, { parse_mode: 'Markdown' });
 }
 
 async function handleNext(ctx: any, db: DBClient) {
+  const sub = await db.getSubscription(ctx.chat.id);
+  const userTz = sub?.timezone || 'UTC';
+
   const now = Date.now();
   const m = await db.getNextMatch();
   if (!m) {
@@ -66,7 +119,8 @@ async function handleNext(ctx: any, db: DBClient) {
     countdownText = `\n⏳ *Starts in:* ${timeStr} remaining`;
   }
 
-  const text = `🗓️ *Next Upcoming Match:*\n\n⚽ *${m.team1_name}* vs *${m.team2_name}*\n🕒 ${m.time_str}\n🏟️ ${m.ground}${countdownText}`;
+  const timeFormatted = getMatchTimeStr(m, userTz);
+  const text = `🗓️ *Next Upcoming Match:*\n\n⚽ *${m.team1_name}* vs *${m.team2_name}*\n🕒 ${timeFormatted}\n🏟️ ${m.ground}${countdownText}`;
   await ctx.reply(text, { parse_mode: 'Markdown' });
 }
 
@@ -184,7 +238,7 @@ const LORE_MAP: Record<string, string> = {
   'Croatia': 'Croatia has consistently punched above their weight, finishing as runners-up in 2018 and third in 1998 and 2022, led by their legendary midfield generation.'
 };
 
-async function getTeamProfileText(db: DBClient, countryQuery: string, includeLore: boolean = true): Promise<string> {
+async function getTeamProfileText(db: DBClient, countryQuery: string, includeLore: boolean = true, userTz?: string): Promise<string> {
   const team = await db.getTeamByNameOrCode(countryQuery);
   if (!team) {
     return `❌ Could not find a team matching "${countryQuery}". Please check the spelling or FIFA code.`;
@@ -216,7 +270,8 @@ async function getTeamProfileText(db: DBClient, countryQuery: string, includeLor
   let lastMatchText = 'None';
   if (lastMatch) {
     const scoreText = lastMatch.score_team1 !== null ? `*${lastMatch.score_team1} - ${lastMatch.score_team2}*` : 'vs';
-    lastMatchText = `⚽ *${lastMatch.team1_name}* ${scoreText} *${lastMatch.team2_name}*\n📅 *Date:* ${lastMatch.date}\n🕒 *Time:* ${lastMatch.time_str} | Finished`;
+    const timeFormatted = getMatchTimeStr(lastMatch, userTz);
+    lastMatchText = `⚽ *${lastMatch.team1_name}* ${scoreText} *${lastMatch.team2_name}*\n🕒 *Time:* ${timeFormatted} | Finished`;
   }
 
   // Format Next Match
@@ -254,7 +309,8 @@ async function getTeamProfileText(db: DBClient, countryQuery: string, includeLor
       countdownText = `\n⏳ *Starts in:* ${timeStr} remaining`;
     }
 
-    nextMatchText = `⚽ *${nextMatch.team1_name}* ${scoreText} *${nextMatch.team2_name}*\n📅 *Date:* ${nextMatch.date}\n🕒 *Time:* ${nextMatch.time_str} | 🏟️ ${nextMatch.ground}${countdownText}`;
+    const timeFormatted = getMatchTimeStr(nextMatch, userTz);
+    nextMatchText = `⚽ *${nextMatch.team1_name}* ${scoreText} *${nextMatch.team2_name}*\n🕒 *Time:* ${timeFormatted} | 🏟️ ${nextMatch.ground}${countdownText}`;
   }
 
   return `🏆 *${team.flag_icon} ${team.name} (${team.fifa_code}) Info*
@@ -283,7 +339,10 @@ async function handleState(ctx: any, db: DBClient, countryQuery: string) {
     return;
   }
 
-  const message = await getTeamProfileText(db, countryQuery);
+  const sub = await db.getSubscription(ctx.chat.id);
+  const userTz = sub?.timezone || 'UTC';
+
+  const message = await getTeamProfileText(db, countryQuery, true, userTz);
   await ctx.reply(message, { parse_mode: 'Markdown' });
 }
 
@@ -298,6 +357,28 @@ export function setupBot(env: Env, origin?: string) {
         "🏆 Welcome to World Cup 2026 Bot!\n\nStay updated with live scores, match schedules, group standings, team statistics, and real-time tournament updates throughout FIFA World Cup 2026.\n\nUse the menu below to get started and follow every moment of the tournament.\nuse inline mode for fast search by typing bot username + space + country name eg. @WorldC26bot Germany",
         { reply_markup: mainKeyboard }
       );
+    }
+  });
+
+  bot.command('timezone', async (ctx) => {
+    const db = new DBClient(env.DB);
+    const sub = await db.getSubscription(ctx.chat.id);
+    const currentTz = sub?.timezone || 'UTC';
+    const tzArg = ctx.match?.trim();
+
+    if (!tzArg) {
+      await ctx.reply(
+        `🕒 *Timezone Settings*\n\nYour current timezone is: \`${currentTz}\`\n\nSelect a popular timezone from the options below, or reply/type a timezone name (e.g. \`Asia/Tehran\` or \`America/New_York\`).`,
+        { parse_mode: 'Markdown', reply_markup: timezoneKeyboard }
+      );
+      return;
+    }
+
+    if (isValidTimezone(tzArg)) {
+      await db.updateSubscriptionTimezone(ctx.chat.id, tzArg);
+      await ctx.reply(`✅ *Timezone Updated!*\n\nYour timezone has been successfully set to: \`${tzArg}\``, { parse_mode: 'Markdown' });
+    } else {
+      await ctx.reply(`❌ *Invalid Timezone!*\n\n"${tzArg}" is not a valid IANA timezone name. Please try again (e.g. \`Asia/Tehran\`).`, { parse_mode: 'Markdown' });
     }
   });
 
@@ -333,12 +414,47 @@ export function setupBot(env: Env, origin?: string) {
     await handleState(ctx, db, query);
   });
 
+  // Handle bot being added or removed from a group/channel
+  bot.on('my_chat_member', async (ctx) => {
+    const db = new DBClient(env.DB);
+    const status = ctx.myChatMember.new_chat_member.status;
+    if (['member', 'administrator'].includes(status)) {
+      await db.addSubscription(ctx.chat.id, ctx.chat.type, ctx.chat.title || 'Unknown');
+    } else if (['left', 'kicked'].includes(status)) {
+      await db.removeSubscription(ctx.chat.id);
+    }
+  });
+
   // Inline callback query handler for standings
   bot.callbackQuery(/^group_standings:(.+)$/, async (ctx) => {
     const group = ctx.match[1];
     const db = new DBClient(env.DB);
     await ctx.answerCallbackQuery();
     await handleGroupTable(ctx, db, group);
+  });
+
+  bot.callbackQuery('settings_timezone', async (ctx) => {
+    if (!ctx.chat) return;
+    const db = new DBClient(env.DB);
+    const sub = await db.getSubscription(ctx.chat.id);
+    const currentTz = sub?.timezone || 'UTC';
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(
+      `🕒 *Timezone Settings*\n\nYour current timezone is: \`${currentTz}\`\n\nSelect a popular timezone from the options below, or reply/type a timezone name (e.g. \`Asia/Tehran\` or \`America/New_York\`).`,
+      { parse_mode: 'Markdown', reply_markup: timezoneKeyboard }
+    );
+  });
+
+  bot.callbackQuery(/^set_tz:(.+)$/, async (ctx) => {
+    if (!ctx.chat) return;
+    const tz = ctx.match[1];
+    const db = new DBClient(env.DB);
+    await db.updateSubscriptionTimezone(ctx.chat.id, tz);
+    await ctx.answerCallbackQuery({ text: `Timezone set to ${tz}` });
+    await ctx.editMessageText(
+      `✅ *Timezone Updated!*\n\nYour timezone is now set to: \`${tz}\`\n\nAll future match times will be displayed in this timezone.`,
+      { parse_mode: 'Markdown' }
+    );
   });
 
   // Handle plain text messages (reply keyboard buttons)
@@ -356,6 +472,16 @@ export function setupBot(env: Env, origin?: string) {
       await handleLive(ctx, db);
     } else if (text === '🌟Team Profile') {
       await ctx.reply('Please send the country name or FIFA code (e.g. Germany or GER) to view its info and stats.');
+    } else if (text === '⚙️ Settings') {
+      const sub = await db.getSubscription(ctx.chat.id);
+      const currentTz = sub?.timezone || 'UTC';
+      await ctx.reply(
+        `⚙️ *Bot Settings*\n\n🕒 *Current Timezone:* \`${currentTz}\`\n\nClick below to change your timezone.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: new InlineKeyboard().text('🕒 Change Timezone', 'settings_timezone')
+        }
+      );
     } else {
       // Only do database lookups for random text in private chats.
       // Doing this in group chats overloads the DB for every normal user message.
@@ -363,6 +489,12 @@ export function setupBot(env: Env, origin?: string) {
         const team = await db.getTeamByNameOrCode(text);
         if (team) {
           await handleState(ctx, db, team.name);
+          return;
+        }
+        // Check if text is a valid timezone name
+        if (isValidTimezone(text)) {
+          await db.updateSubscriptionTimezone(ctx.chat.id, text);
+          await ctx.reply(`✅ *Timezone Updated!*\n\nYour timezone has been successfully set to: \`${text}\``, { parse_mode: 'Markdown' });
           return;
         }
       }
@@ -374,10 +506,21 @@ export function setupBot(env: Env, origin?: string) {
   bot.on('inline_query', async (ctx) => {
     const query = ctx.inlineQuery.query;
     const db = new DBClient(env.DB);
+    
+    // Track inline user usage
+    if (ctx.from) {
+      // In Cloudflare Workers with waitUntil available on context (via Grammy or custom middleware),
+      // we could use it to avoid blocking the response, but awaiting is fine here.
+      await db.trackInlineUser(ctx.from.id, ctx.from.username, ctx.from.first_name);
+    }
+
+    const sub = ctx.from ? await db.getSubscription(ctx.from.id) : null;
+    const userTz = sub?.timezone || 'UTC';
+
     const teams = await db.searchTeamsForInline(query);
 
     const results = await Promise.all(teams.map(async (t, index) => {
-      const messageText = await getTeamProfileText(db, t.name, false);
+      const messageText = await getTeamProfileText(db, t.name, false, userTz);
       return {
         type: 'article',
         id: String(index),

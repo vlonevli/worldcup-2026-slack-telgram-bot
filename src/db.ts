@@ -38,6 +38,7 @@ export interface Subscription {
   chat_title: string;
   subscribed_at: number;
   is_active: number;
+  timezone?: string;
 }
 
 export class DBClient {
@@ -120,6 +121,14 @@ export class DBClient {
   async getActiveSubscriptions(): Promise<Subscription[]> {
     const { results } = await this.db.prepare(`SELECT * FROM subscriptions WHERE is_active = 1`).all<Subscription>();
     return results || [];
+  }
+
+  async getSubscription(chatId: number): Promise<Subscription | null> {
+    return await this.db.prepare(`SELECT * FROM subscriptions WHERE chat_id = ?`).bind(chatId).first<Subscription>();
+  }
+
+  async updateSubscriptionTimezone(chatId: number, timezone: string): Promise<void> {
+    await this.db.prepare(`UPDATE subscriptions SET timezone = ? WHERE chat_id = ?`).bind(timezone, chatId).run();
   }
 
   async isNotificationSent(id: string): Promise<boolean> {
@@ -258,5 +267,17 @@ export class DBClient {
     }
     
     return results || [];
+  }
+
+  async trackInlineUser(userId: number, username: string | undefined, firstName: string): Promise<void> {
+    await this.db.prepare(
+      `INSERT INTO inline_users (user_id, username, first_name, last_used_at, usage_count) 
+       VALUES (?, ?, ?, ?, 1)
+       ON CONFLICT(user_id) DO UPDATE SET 
+          username = excluded.username,
+          first_name = excluded.first_name,
+          last_used_at = excluded.last_used_at,
+          usage_count = usage_count + 1`
+    ).bind(userId, username || null, firstName, Date.now()).run();
   }
 }
