@@ -28,6 +28,28 @@ app.get('/flags/:filename', (c) => {
   });
 });
 
+app.get('/release-stuck', async (c) => {
+  const token = c.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return c.text('No token configured', 500);
+
+  // 1. Delete Webhook and drop pending updates
+  const deleteUrl = `https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=true`;
+  const deleteRes = await fetch(deleteUrl);
+  const deleteJson = await deleteRes.json();
+
+  // 2. Set Webhook again
+  const webhookUrl = new URL(c.req.url).origin + '/webhook';
+  const setUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${webhookUrl}`;
+  const setRes = await fetch(setUrl);
+  const setJson = await setRes.json();
+
+  return c.json({
+    message: "Stuck users should now be released. Webhook reset successfully.",
+    deleteWebhookResult: deleteJson,
+    setWebhookResult: setJson
+  });
+});
+
 app.post('/webhook', async (c) => {
   try {
     const origin = new URL(c.req.url).origin;

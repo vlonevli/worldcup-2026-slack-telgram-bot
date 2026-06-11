@@ -106,6 +106,76 @@ export class DBClient {
     ).bind(m.score_team1, m.score_team2, m.score_pen_team1, m.score_pen_team2, m.status, Date.now(), m.id).run();
   }
 
+  async calculateAndUpdateStandings(groupName: string): Promise<void> {
+    if (!groupName || groupName === 'Placeholder') return;
+    
+    // Get all finished matches for this group
+    const { results: matches } = await this.db.prepare(
+      `SELECT m.* FROM matches m 
+       JOIN teams t1 ON m.team1_name = t1.name 
+       WHERE t1.group_name = ? AND m.status = 'FINISHED'`
+    ).bind(groupName).all<Match>();
+
+    const { results: teams } = await this.db.prepare(
+      `SELECT name as team_name, flag_icon FROM teams WHERE group_name = ?`
+    ).bind(groupName).all();
+
+    const standingsMap = new Map();
+    for (const t of (teams || [])) {
+      standingsMap.set(t.team_name, {
+        team_name: t.team_name,
+        played: 0, wins: 0, draws: 0, losses: 0,
+        goals_for: 0, goals_against: 0, goal_difference: 0, points: 0
+      });
+    }
+
+    for (const m of (matches || [])) {
+      const t1 = standingsMap.get(m.team1_name);
+      const t2 = standingsMap.get(m.team2_name);
+      
+      const s1 = m.score_team1 || 0;
+      const s2 = m.score_team2 || 0;
+
+      if (t1) {
+        t1.played++;
+        t1.goals_for += s1;
+        t1.goals_against += s2;
+        t1.goal_difference = t1.goals_for - t1.goals_against;
+        if (s1 > s2) { t1.wins++; t1.points += 3; }
+        else if (s1 === s2) { t1.draws++; t1.points += 1; }
+        else { t1.losses++; }
+      }
+
+      if (t2) {
+        t2.played++;
+        t2.goals_for += s2;
+        t2.goals_against += s1;
+        t2.goal_difference = t2.goals_for - t2.goals_against;
+        if (s2 > s1) { t2.wins++; t2.points += 3; }
+        else if (s2 === s1) { t2.draws++; t2.points += 1; }
+        else { t2.losses++; }
+      }
+    }
+
+    // Upsert the results into the standings table
+    const values = Array.from(standingsMap.values());
+    for (const t of values) {
+      await this.db.prepare(`
+        INSERT INTO standings (group_name, team_name, played, wins, draws, losses, goals_for, goals_against, goal_difference, points)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(group_name, team_name) DO UPDATE SET
+          played = excluded.played,
+          wins = excluded.wins,
+          draws = excluded.draws,
+          losses = excluded.losses,
+          goals_for = excluded.goals_for,
+          goals_against = excluded.goals_against,
+          goal_difference = excluded.goal_difference,
+          points = excluded.points
+      `).bind(groupName, t.team_name, t.played, t.wins, t.draws, t.losses, t.goals_for, t.goals_against, t.goal_difference, t.points).run();
+    }
+  }
+
   async addSubscription(chatId: number, chatType: string, chatTitle: string): Promise<void> {
     await this.db.prepare(
       `INSERT INTO subscriptions (chat_id, chat_type, chat_title, subscribed_at, is_active) 
@@ -127,8 +197,14 @@ export class DBClient {
     return await this.db.prepare(`SELECT * FROM subscriptions WHERE chat_id = ?`).bind(chatId).first<Subscription>();
   }
 
-  async updateSubscriptionTimezone(chatId: number, timezone: string): Promise<void> {
-    await this.db.prepare(`UPDATE subscriptions SET timezone = ? WHERE chat_id = ?`).bind(timezone, chatId).run();
+  async updateSubscriptionTimezone(chatId: number, timezone: string, chatType: string = 'private', chatTitle: string = 'Unknown'): Promise<void> {
+    // UPSERT: create the subscription row if it doesn't exist yet (fixes users who
+    // interacted with timezone settings before running /start — their UPDATE was a no-op).
+    await this.db.prepare(
+      `INSERT INTO subscriptions (chat_id, chat_type, chat_title, subscribed_at, is_active, timezone)
+       VALUES (?, ?, ?, ?, 1, ?)
+       ON CONFLICT(chat_id) DO UPDATE SET timezone = excluded.timezone`
+    ).bind(chatId, chatType, chatTitle, Date.now(), timezone).run();
   }
 
   async isNotificationSent(id: string): Promise<boolean> {

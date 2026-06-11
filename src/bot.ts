@@ -1,7 +1,9 @@
 import { Bot, Keyboard, InlineKeyboard } from 'grammy';
 import { Env, DBClient, Match } from './db';
 
-function formatTimeForTimezone(kickoffUtc: number, tz: string): string {
+function formatTimeForTimezone(kickoffUtc: number | string, tz: string): string {
+  const ts = Number(kickoffUtc); // Safely coerce — D1 sometimes returns integers as strings
+  if (!isFinite(ts)) return String(kickoffUtc); // fallback: return raw value
   try {
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
@@ -12,15 +14,18 @@ function formatTimeForTimezone(kickoffUtc: number, tz: string): string {
       minute: '2-digit',
       hour12: false
     });
-    const parts = formatter.formatToParts(new Date(kickoffUtc));
-    const month = parts.find(p => p.type === 'month')?.value;
-    const day = parts.find(p => p.type === 'day')?.value;
-    const year = parts.find(p => p.type === 'year')?.value;
-    const hour = parts.find(p => p.type === 'hour')?.value;
-    const minute = parts.find(p => p.type === 'minute')?.value;
+    const parts = formatter.formatToParts(new Date(ts));
+    const month = parts.find(p => p.type === 'month')?.value ?? '??';
+    const day = parts.find(p => p.type === 'day')?.value ?? '??';
+    const year = parts.find(p => p.type === 'year')?.value ?? '????';
+    const hour = parts.find(p => p.type === 'hour')?.value ?? '??';
+    const minute = parts.find(p => p.type === 'minute')?.value ?? '??';
     return `${year}-${month}-${day} ${hour}:${minute} (${tz})`;
-  } catch (e) {
-    return new Date(kickoffUtc).toISOString().replace('T', ' ').substring(0, 16) + ' (UTC)';
+  } catch (_e) {
+    // Safe fallback — no secondary throws
+    const d = new Date(ts);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} (UTC)`;
   }
 }
 
@@ -165,7 +170,7 @@ function formatStandingsRow(flag: string, pos: string, team: string, p: string, 
   // team starts at 5
   row = padEndVisual(row, 5) + team;
 
-  // p starts at 16
+  // p starts at 16 (gives team 11 chars space, i.e. max 10 chars + 1 space spacer)
   row = padEndVisual(row, 16) + p;
 
   // w starts at 18
@@ -180,10 +185,27 @@ function formatStandingsRow(flag: string, pos: string, team: string, p: string, 
   // gd starts at 24
   row = padEndVisual(row, 24) + gd;
 
-  // pts starts at 28
-  row = padEndVisual(row, 28) + pts;
+  // pts starts at 27 if it is the header 'Pt', otherwise it is padded to 28 so single-digit points align under 't' of 'Pt'.
+  const ptsPad = (pts === 'Pt' || pts === 'Pts') ? 27 : 28;
+  row = padEndVisual(row, ptsPad) + pts;
 
   return row;
+}
+
+function getDisplayName(name: string): string {
+  if (name.length <= 10) return name;
+  const custom: Record<string, string> = {
+    'Czech Republic': 'Czech Rep.',
+    'Bosnia & Herzegovina': 'Bosnia & H',
+    'South Africa': 'South Afr.',
+    'Saudi Arabia': 'Saudi Arab',
+    'South Korea': 'South Kor.',
+    'Ivory Coast': 'Ivory Cst.',
+    'New Zealand': 'New Zeal.',
+    'Netherlands': 'Netherl.',
+  };
+  if (custom[name]) return custom[name];
+  return name.substring(0, 9) + '.';
 }
 
 function formatStandingsText(group: string, teams: any[]): string {
@@ -193,13 +215,13 @@ function formatStandingsText(group: string, teams: any[]): string {
   let text = `🏆 *Group ${group} Standings*\n\n`;
 
   // Format header using our alignment function, starting with 2 spaces representing the flag column
-  const header = formatStandingsRow('  ', '#', 'Team', 'P', 'W', 'D', 'L', 'GD', 'Pts');
+  const header = formatStandingsRow('  ', '#', 'Team', 'P', 'W', 'D', 'L', 'GD', 'Pt');
   text += `\`${header}\`\n`;
 
   teams.forEach((t, i) => {
     const flag = t.flag_icon || '🏳️';
     const pos = String(i + 1);
-    const displayName = t.team_name.substring(0, 10);
+    const displayName = getDisplayName(t.team_name);
     const p = String(t.played);
     const w = String(t.wins);
     const d = String(t.draws);
@@ -349,6 +371,13 @@ async function handleState(ctx: any, db: DBClient, countryQuery: string) {
 export function setupBot(env: Env, origin?: string) {
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN || '1234:dummy');
 
+  bot.catch(async (err) => {
+    console.error(`Error while handling update ${err.ctx.update.update_id}:`, err.error);
+    try {
+      await err.ctx.reply(`❌ *An error occurred:*\n\n\`\`\`\n${(err.error as Error).message || String(err.error)}\n\`\`\``, { parse_mode: 'Markdown' });
+    } catch (e) {}
+  });
+
   bot.command('start', async (ctx) => {
     const db = new DBClient(env.DB);
     if (['private', 'group', 'supergroup', 'channel'].includes(ctx.chat.type)) {
@@ -360,11 +389,32 @@ export function setupBot(env: Env, origin?: string) {
     }
   });
 
+  // /subscribe — lets any group/channel register for live match notifications
+  bot.command('subscribe', async (ctx) => {
+    const db = new DBClient(env.DB);
+    const chatType = ctx.chat.type;
+    const chatTitle = (ctx.chat as any).title || (ctx.chat as any).first_name || 'Unknown';
+    await db.addSubscription(ctx.chat.id, chatType, chatTitle);
+    await ctx.reply(
+      `✅ *Subscribed!*\n\nThis chat (${chatTitle}) is now registered to receive live World Cup 2026 notifications — goals, kickoffs, half-time, and full-time alerts.`,
+      { parse_mode: 'Markdown' }
+    );
+  });
+
+  // /unsubscribe — lets a group/channel opt out of notifications
+  bot.command('unsubscribe', async (ctx) => {
+    const db = new DBClient(env.DB);
+    await db.removeSubscription(ctx.chat.id);
+    await ctx.reply('❌ *Unsubscribed.*\n\nThis chat will no longer receive match notifications.', { parse_mode: 'Markdown' });
+  });
+
   bot.command('timezone', async (ctx) => {
     const db = new DBClient(env.DB);
     const sub = await db.getSubscription(ctx.chat.id);
     const currentTz = sub?.timezone || 'UTC';
     const tzArg = ctx.match?.trim();
+    const chatType = ctx.chat.type;
+    const chatTitle = (ctx.chat as any).title || (ctx.chat as any).first_name || 'Unknown';
 
     if (!tzArg) {
       await ctx.reply(
@@ -375,7 +425,7 @@ export function setupBot(env: Env, origin?: string) {
     }
 
     if (isValidTimezone(tzArg)) {
-      await db.updateSubscriptionTimezone(ctx.chat.id, tzArg);
+      await db.updateSubscriptionTimezone(ctx.chat.id, tzArg, chatType, chatTitle);
       await ctx.reply(`✅ *Timezone Updated!*\n\nYour timezone has been successfully set to: \`${tzArg}\``, { parse_mode: 'Markdown' });
     } else {
       await ctx.reply(`❌ *Invalid Timezone!*\n\n"${tzArg}" is not a valid IANA timezone name. Please try again (e.g. \`Asia/Tehran\`).`, { parse_mode: 'Markdown' });
@@ -415,12 +465,25 @@ export function setupBot(env: Env, origin?: string) {
   });
 
   // Handle bot being added or removed from a group/channel
+  // This fires automatically when the bot is added — no need for /start in groups
   bot.on('my_chat_member', async (ctx) => {
     const db = new DBClient(env.DB);
-    const status = ctx.myChatMember.new_chat_member.status;
-    if (['member', 'administrator'].includes(status)) {
-      await db.addSubscription(ctx.chat.id, ctx.chat.type, ctx.chat.title || 'Unknown');
-    } else if (['left', 'kicked'].includes(status)) {
+    const newStatus = ctx.myChatMember.new_chat_member.status;
+    const chatType = ctx.chat.type;
+    const chatTitle = (ctx.chat as any).title || (ctx.chat as any).first_name || 'Unknown';
+
+    if (['member', 'administrator'].includes(newStatus)) {
+      await db.addSubscription(ctx.chat.id, chatType, chatTitle);
+      // Welcome message for groups/supergroups
+      if (chatType === 'group' || chatType === 'supergroup') {
+        try {
+          await ctx.reply(
+            `🏆 *World Cup 2026 Bot is here!*\n\nThis group is now subscribed to live match notifications — goals ⚽, kickoffs ⏱️, half-time ⏸️, and full-time 🏁 alerts.\n\nUse /wctoday, /wclive, /wcnext for quick info. Use /unsubscribe to opt out.`,
+            { parse_mode: 'Markdown' }
+          );
+        } catch (e) {}
+      }
+    } else if (['left', 'kicked'].includes(newStatus)) {
       await db.removeSubscription(ctx.chat.id);
     }
   });
@@ -449,7 +512,9 @@ export function setupBot(env: Env, origin?: string) {
     if (!ctx.chat) return;
     const tz = ctx.match[1];
     const db = new DBClient(env.DB);
-    await db.updateSubscriptionTimezone(ctx.chat.id, tz);
+    const chatType = ctx.chat.type;
+    const chatTitle = (ctx.chat as any).title || (ctx.chat as any).first_name || 'Unknown';
+    await db.updateSubscriptionTimezone(ctx.chat.id, tz, chatType, chatTitle);
     await ctx.answerCallbackQuery({ text: `Timezone set to ${tz}` });
     await ctx.editMessageText(
       `✅ *Timezone Updated!*\n\nYour timezone is now set to: \`${tz}\`\n\nAll future match times will be displayed in this timezone.`,
@@ -491,9 +556,10 @@ export function setupBot(env: Env, origin?: string) {
           await handleState(ctx, db, team.name);
           return;
         }
-        // Check if text is a valid timezone name
+        // Check if text is a valid timezone name — also registers the user if not yet subscribed
         if (isValidTimezone(text)) {
-          await db.updateSubscriptionTimezone(ctx.chat.id, text);
+          const firstName = (ctx.chat as any).first_name || 'Unknown';
+          await db.updateSubscriptionTimezone(ctx.chat.id, text, 'private', firstName);
           await ctx.reply(`✅ *Timezone Updated!*\n\nYour timezone has been successfully set to: \`${text}\``, { parse_mode: 'Markdown' });
           return;
         }
