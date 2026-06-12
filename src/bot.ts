@@ -1,5 +1,6 @@
 import { Bot, Keyboard, InlineKeyboard } from 'grammy';
 import { Env, DBClient, Match } from './db';
+import { calculatePreMatchChances, calculateLiveProbability, formatLiveWinProbability } from './probability';
 
 function formatTimeForTimezone(kickoffUtc: number | string, tz: string): string {
   const ts = Number(kickoffUtc); // Safely coerce — D1 sometimes returns integers as strings
@@ -133,7 +134,11 @@ async function handleNext(ctx: any, db: DBClient) {
   const f1 = m.t1_flag || '🏳️';
   const f2 = m.t2_flag || '🏳️';
 
-  const text = `⏳ UPCOMING\n\n${f1} <b>${m.team1_name}</b> vs <b>${m.team2_name}</b> ${f2}\n\n🕒 ${timeStr}\n📅 ${dateStr}\n🏟️ ${m.ground}\n${countdownText}`;
+  const prob = calculatePreMatchChances(m.team1_name, m.team2_name);
+  // Re-format to the requested format for next match
+  const probStr = `📊 <b>Win Probability</b>\n<blockquote>${f1} ${m.team1_name} ${prob.w1}%\n🤝 Draw ${prob.d}%\n${f2} ${m.team2_name} ${prob.w2}%</blockquote>`;
+
+  const text = `⏳ UPCOMING\n\n${f1} <b>${m.team1_name}</b> vs <b>${m.team2_name}</b> ${f2}\n\n🕒 ${timeStr}\n📅 ${dateStr}\n🏟️ ${m.ground}\n${countdownText}\n\n${probStr}`;
   await ctx.reply(text, { parse_mode: 'HTML' });
 }
 
@@ -204,6 +209,24 @@ async function handleLive(ctx: any, db: DBClient) {
        }
        text += `</blockquote>\n`;
     }
+    
+    // Calculate Live Win Probability
+    let s1Stats = null;
+    let s2Stats = null;
+    if (stats.length === 2) {
+       s1Stats = stats.find(s => s.team_name === m.team1_name);
+       s2Stats = stats.find(s => s.team_name === m.team2_name);
+    }
+    
+    const liveProb = calculateLiveProbability(
+       m.team1_name, f1, m.team2_name, f2,
+       m.score_team1 ?? 0, m.score_team2 ?? 0,
+       reds.filter(r => r.team_name === m.team1_name).length,
+       reds.filter(r => r.team_name === m.team2_name).length,
+       s1Stats, s2Stats, m.live_clock || '0'
+    );
+    
+    text += `${formatLiveWinProbability(liveProb)}\n\n`;
     
     text += `──────────────────\n\n`;
   }

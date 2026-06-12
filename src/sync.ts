@@ -1,5 +1,6 @@
 import { Env, DBClient, Match } from './db';
 import { Bot } from 'grammy';
+import { calculateLiveProbability, formatLiveWinProbability } from './probability';
 
 function cleanTeamName(name: string): string {
   if (!name) return '';
@@ -212,11 +213,21 @@ export async function syncMatches(env: Env) {
                  });
               }
 
-              // Process Events (Cards, Goals, Penalties)
-              const matchEvents = comp.details || espnEvent.details || [];
-              const recentGoals1: string[] = [];
-              const recentGoals2: string[] = [];
+              // Extract live clock early to use in calculations
+              const liveClock = espnEvent.status?.displayClock || espnEvent.status?.type?.detail || '';
+              const clockIntNum = parseInt(liveClock.replace(/[^0-9]/g, '')) || 0;
 
+              // Pre-calculate live probability for notifications
+              const rcs1 = matchEvents.filter((e: any) => e.redCard && e.team?.id === homeCompetitor?.team?.id).length;
+              const rcs2 = matchEvents.filter((e: any) => e.redCard && e.team?.id === awayCompetitor?.team?.id).length;
+              
+              const liveProb = calculateLiveProbability(
+                 dbMatch.team1_name, dbMatch.t1_flag || '🏳️', dbMatch.team2_name, dbMatch.t2_flag || '🏳️',
+                 score1, score2, rcs1, rcs2, stats1, stats2, liveClock
+              );
+              const probTextHTML = formatLiveWinProbability(liveProb);
+
+              // Process Events (Cards, Goals, Penalties)
               for (const ev of matchEvents) {
                  const clock = ev.clock?.displayValue || String(ev.clock?.value || 0);
                  const typeId = ev.type?.id;
@@ -241,7 +252,7 @@ export async function syncMatches(env: Env) {
                     if (teamName === dbMatch.team2_name) recentGoals2.push(`${playerName} (${clock})`);
                  } else if (ev.redCard) {
                     eventType = 'RED_CARD';
-                    notifyStr = `🟥 *RED CARD!*\n\n*${playerName}* (${clock}) has been sent off for *${teamName}*!`;
+                    notifyStr = `🟥 <b>RED CARD!</b>\n\n<b>${playerName}</b> (${clock}) has been sent off for <b>${teamName}</b>!\n\n${probTextHTML}`;
                  } else if (ev.yellowCard) {
                     eventType = 'YELLOW_CARD';
                     notifyStr = `🟨 *YELLOW CARD*\n\n*${playerName}* (${clock}) - *${teamName}*`;
@@ -261,7 +272,8 @@ export async function syncMatches(env: Env) {
                     
                     if (isMatchActive && notifyStr) {
                        // Ensure we don't spam if the bot restarts mid-match
-                       await broadcastOnce(`notif_${eventId}`, notifyStr);
+                       const parseMode = eventType === 'RED_CARD' ? 'HTML' : 'Markdown';
+                       await broadcastOnce(`notif_${eventId}`, notifyStr, parseMode);
                     }
                  }
               }
@@ -273,13 +285,13 @@ export async function syncMatches(env: Env) {
 
                 if (score1 > prevScore1) {
                   const scorerInfo = recentGoals1.length > 0 ? `\n👤 Scorer: ${recentGoals1[recentGoals1.length - 1]}` : '';
-                  const text = `⚽ *GOAL!*\n\n🟦 ${dbMatch.team1_name} scored against ${dbMatch.team2_name}!${scorerInfo}\n\nScore: *${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}*`;
-                  await broadcastOnce(`goal_${dbMatch.id}_${score1}_${score2}`, text);
+                  const text = `⚽ <b>GOAL!</b>\n\n🟦 ${dbMatch.team1_name} scored against ${dbMatch.team2_name}!${scorerInfo}\n\nScore: <b>${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}</b>\n\n${probTextHTML}`;
+                  await broadcastOnce(`goal_${dbMatch.id}_${score1}_${score2}`, text, 'HTML');
                 }
                 if (score2 > prevScore2) {
                   const scorerInfo = recentGoals2.length > 0 ? `\n👤 Scorer: ${recentGoals2[recentGoals2.length - 1]}` : '';
-                  const text = `⚽ *GOAL!*\n\n🟦 ${dbMatch.team2_name} scored against ${dbMatch.team1_name}!${scorerInfo}\n\nScore: *${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}*`;
-                  await broadcastOnce(`goal_${dbMatch.id}_${score1}_${score2}`, text);
+                  const text = `⚽ <b>GOAL!</b>\n\n🟦 ${dbMatch.team2_name} scored against ${dbMatch.team1_name}!${scorerInfo}\n\nScore: <b>${dbMatch.team1_name} ${score1} - ${score2} ${dbMatch.team2_name}</b>\n\n${probTextHTML}`;
+                  await broadcastOnce(`goal_${dbMatch.id}_${score1}_${score2}`, text, 'HTML');
                 }
               }
 
