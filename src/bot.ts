@@ -137,10 +137,14 @@ async function handleLive(ctx: any, db: DBClient) {
     return;
   }
 
-  let text = '📡 *Live Matches:*\n\n';
+  let text = '';
   for (const m of matches) {
-    const statusText = m.status === 'PAUSED' ? 'Halftime' : (m.live_clock ? `Live (${m.live_clock})` : 'Live');
-    text += `⚽ *${m.team1_name}* ${m.score_team1 ?? 0} - ${m.score_team2 ?? 0} *${m.team2_name}*\n🕒 Status: ${statusText} | 🏟️ ${m.ground}\n`;
+    const f1 = m.t1_flag || '🏳️';
+    const f2 = m.t2_flag || '🏳️';
+    const clock = m.live_clock ? `${m.live_clock} LIVE` : 'LIVE';
+    
+    text += `🔴 ${clock}\n\n`;
+    text += `${f1} ${m.score_team1 ?? 0}–${m.score_team2 ?? 0} ${f2}\n\n`;
 
     // Fetch Stats
     const stats = await db.getMatchStats(m.id);
@@ -148,23 +152,60 @@ async function handleLive(ctx: any, db: DBClient) {
        const s1 = stats.find(s => s.team_name === m.team1_name);
        const s2 = stats.find(s => s.team_name === m.team2_name);
        if (s1 && s2) {
-          text += `📊 *Stats:* Pos: ${s1.possession_pct}%-${s2.possession_pct}% | Shots: ${s1.shots_total}-${s2.shots_total}\n`;
+          text += `📊 Match Stats\n`;
+          text += `<blockquote>Possession ${s1.possession_pct}% - ${s2.possession_pct}%\n`;
+          text += `Shots  ${s1.shots_total} - ${s2.shots_total}</blockquote>\n`;
        }
     }
 
-    // Fetch Events (Goals and Red Cards timeline)
+    // Fetch Events (Cards and Goals)
     const events = await db.getMatchEvents(m.id);
-    const notableEvents = events.filter(e => e.type === 'GOAL' || e.type === 'RED_CARD');
-    if (notableEvents.length > 0) {
-       text += `⏱️ *Timeline:*\n`;
-       for (const e of notableEvents) {
-          const icon = e.type === 'GOAL' ? '⚽' : '🟥';
-          text += `  ${icon} ${e.minute}' ${e.player_name} (${e.team_name})\n`;
+    const yellows = events.filter(e => e.type === 'YELLOW_CARD');
+    const reds = events.filter(e => e.type === 'RED_CARD');
+    const goals = events.filter(e => e.type === 'GOAL');
+
+    if (goals.length > 0) {
+       text += `⚽ Goals\n`;
+       text += `<blockquote>`;
+       for (const e of goals) {
+          const flag = e.team_name === m.team1_name ? f1 : (e.team_name === m.team2_name ? f2 : '🏳️');
+          text += `${flag} ${e.player_name} ${e.minute}'\n`;
        }
+       text += `</blockquote>\n`;
     }
-    text += `\n`;
+
+    if (yellows.length > 0 || reds.length > 0) {
+       text += `Cards\n`;
+       text += `<blockquote>`;
+       if (yellows.length > 0) {
+          text += `🟨 Yellow Cards\n`;
+          for (const e of yellows) {
+             const flag = e.team_name === m.team1_name ? f1 : (e.team_name === m.team2_name ? f2 : '🏳️');
+             text += `${flag} ${e.player_name} ${e.minute}'\n`;
+          }
+       }
+       if (yellows.length > 0 && reds.length > 0) {
+          text += `\n`;
+       }
+       if (reds.length > 0) {
+          text += `🟥 Red Cards\n`;
+          for (const e of reds) {
+             const flag = e.team_name === m.team1_name ? f1 : (e.team_name === m.team2_name ? f2 : '🏳️');
+             text += `${flag} ${e.player_name} ${e.minute}'\n`;
+          }
+       }
+       text += `</blockquote>\n`;
+    }
+    
+    text += `──────────────────\n\n`;
   }
-  await ctx.reply(text, { parse_mode: 'Markdown' });
+
+  // Remove trailing separator
+  if (text.endsWith(`──────────────────\n\n`)) {
+     text = text.slice(0, -20);
+  }
+
+  await ctx.reply(text, { parse_mode: 'HTML' });
 }
 
 function visualLength(str: string): number {

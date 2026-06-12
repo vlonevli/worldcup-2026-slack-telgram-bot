@@ -16,10 +16,11 @@ export interface Match {
   score_team1: number | null;
   score_team2: number | null;
   score_pen_team1: number | null;
-  score_pen_team2: number | null;
   status: string;
   ground: string;
   live_clock?: string;
+  t1_flag?: string;
+  t2_flag?: string;
 }
 
 export interface MatchEvent {
@@ -93,7 +94,12 @@ export class DBClient {
 
   async getLiveMatches(): Promise<Match[]> {
     const { results } = await this.db.prepare(
-      `SELECT * FROM matches WHERE status IN ('LIVE', 'IN_PLAY', 'PAUSED') ORDER BY kickoff_utc ASC`
+      `SELECT m.*, t1.flag_icon as t1_flag, t2.flag_icon as t2_flag 
+       FROM matches m 
+       JOIN teams t1 ON m.team1_name = t1.name 
+       JOIN teams t2 ON m.team2_name = t2.name 
+       WHERE m.status IN ('LIVE', 'IN_PLAY', 'PAUSED') 
+       ORDER BY m.kickoff_utc ASC`
     ).all<Match>();
     return results || [];
   }
