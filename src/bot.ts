@@ -138,10 +138,32 @@ async function handleLive(ctx: any, db: DBClient) {
   }
 
   let text = '📡 *Live Matches:*\n\n';
-  matches.forEach((m: Match) => {
-    const statusText = m.status === 'PAUSED' ? 'Halftime' : 'Live';
-    text += `⚽ *${m.team1_name}* ${m.score_team1 ?? 0} - ${m.score_team2 ?? 0} *${m.team2_name}*\n🕒 Status: ${statusText} | 🏟️ ${m.ground}\n\n`;
-  });
+  for (const m of matches) {
+    const statusText = m.status === 'PAUSED' ? 'Halftime' : (m.live_clock ? `Live (${m.live_clock})` : 'Live');
+    text += `⚽ *${m.team1_name}* ${m.score_team1 ?? 0} - ${m.score_team2 ?? 0} *${m.team2_name}*\n🕒 Status: ${statusText} | 🏟️ ${m.ground}\n`;
+
+    // Fetch Stats
+    const stats = await db.getMatchStats(m.id);
+    if (stats.length === 2) {
+       const s1 = stats.find(s => s.team_name === m.team1_name);
+       const s2 = stats.find(s => s.team_name === m.team2_name);
+       if (s1 && s2) {
+          text += `📊 *Stats:* Pos: ${s1.possession_pct}%-${s2.possession_pct}% | Shots: ${s1.shots_total}-${s2.shots_total}\n`;
+       }
+    }
+
+    // Fetch Events (Goals and Red Cards timeline)
+    const events = await db.getMatchEvents(m.id);
+    const notableEvents = events.filter(e => e.type === 'GOAL' || e.type === 'RED_CARD');
+    if (notableEvents.length > 0) {
+       text += `⏱️ *Timeline:*\n`;
+       for (const e of notableEvents) {
+          const icon = e.type === 'GOAL' ? '⚽' : '🟥';
+          text += `  ${icon} ${e.minute}' ${e.player_name} (${e.team_name})\n`;
+       }
+    }
+    text += `\n`;
+  }
   await ctx.reply(text, { parse_mode: 'Markdown' });
 }
 

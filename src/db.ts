@@ -19,6 +19,30 @@ export interface Match {
   score_pen_team2: number | null;
   status: string;
   ground: string;
+  live_clock?: string;
+}
+
+export interface MatchEvent {
+  id: string;
+  match_id: number;
+  type: string;
+  minute: number;
+  player_name: string;
+  team_name: string;
+  detail: string | null;
+  created_at: number;
+}
+
+export interface MatchStats {
+  match_id: number;
+  team_name: string;
+  possession_pct: number;
+  shots_total: number;
+  shots_on_target: number;
+  corners: number;
+  offsides: number;
+  fouls: number;
+  saves: number;
 }
 
 export interface Team {
@@ -102,8 +126,8 @@ export class DBClient {
 
   async updateMatch(m: Match): Promise<void> {
     await this.db.prepare(
-      `UPDATE matches SET score_team1 = ?, score_team2 = ?, score_pen_team1 = ?, score_pen_team2 = ?, status = ?, last_updated = ? WHERE id = ?`
-    ).bind(m.score_team1, m.score_team2, m.score_pen_team1, m.score_pen_team2, m.status, Date.now(), m.id).run();
+      `UPDATE matches SET score_team1 = ?, score_team2 = ?, score_pen_team1 = ?, score_pen_team2 = ?, status = ?, live_clock = ?, last_updated = ? WHERE id = ?`
+    ).bind(m.score_team1, m.score_team2, m.score_pen_team1, m.score_pen_team2, m.status, m.live_clock || '', Date.now(), m.id).run();
   }
 
   async calculateAndUpdateStandings(groupName: string): Promise<void> {
@@ -355,5 +379,43 @@ export class DBClient {
           last_used_at = excluded.last_used_at,
           usage_count = usage_count + 1`
     ).bind(userId, username || null, firstName, Date.now()).run();
+  }
+
+  async getMatchStats(matchId: number): Promise<MatchStats[]> {
+    const { results } = await this.db.prepare(`SELECT * FROM match_stats WHERE match_id = ?`).bind(matchId).all<MatchStats>();
+    return results || [];
+  }
+
+  async updateMatchStats(stats: MatchStats): Promise<void> {
+    await this.db.prepare(`
+      INSERT INTO match_stats (match_id, team_name, possession_pct, shots_total, shots_on_target, corners, offsides, fouls, saves)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(match_id, team_name) DO UPDATE SET
+        possession_pct = excluded.possession_pct,
+        shots_total = excluded.shots_total,
+        shots_on_target = excluded.shots_on_target,
+        corners = excluded.corners,
+        offsides = excluded.offsides,
+        fouls = excluded.fouls,
+        saves = excluded.saves
+    `).bind(
+      stats.match_id, stats.team_name, stats.possession_pct, stats.shots_total,
+      stats.shots_on_target, stats.corners, stats.offsides, stats.fouls, stats.saves
+    ).run();
+  }
+
+  async getMatchEvents(matchId: number): Promise<MatchEvent[]> {
+    const { results } = await this.db.prepare(`SELECT * FROM match_events WHERE match_id = ? ORDER BY minute ASC`).bind(matchId).all<MatchEvent>();
+    return results || [];
+  }
+
+  async addMatchEvent(event: MatchEvent): Promise<void> {
+    await this.db.prepare(`
+      INSERT OR IGNORE INTO match_events (id, match_id, type, minute, player_name, team_name, detail, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      event.id, event.match_id, event.type, event.minute,
+      event.player_name, event.team_name, event.detail, event.created_at
+    ).run();
   }
 }
