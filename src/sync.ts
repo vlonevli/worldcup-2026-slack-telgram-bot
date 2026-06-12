@@ -61,7 +61,11 @@ export async function syncMatches(env: Env) {
   const next60Min = now + 60 * 60000;
   
   const { results: matches } = await env.DB.prepare(
-    `SELECT * FROM matches WHERE status IN ('SCHEDULED', 'LIVE', 'IN_PLAY', 'PAUSED')`
+    `SELECT m.*, t1.flag_icon as t1_flag, t2.flag_icon as t2_flag 
+     FROM matches m 
+     JOIN teams t1 ON m.team1_name = t1.name 
+     JOIN teams t2 ON m.team2_name = t2.name 
+     WHERE m.status IN ('SCHEDULED', 'LIVE', 'IN_PLAY', 'PAUSED')`
   ).all<Match>();
 
   if (!matches) return;
@@ -71,7 +75,7 @@ export async function syncMatches(env: Env) {
 
   // Helper: send a deduplicated notification to all subscribers in parallel batches
   // Telegram rate limit: ~30 msgs/sec per bot. We use batches of 25 to stay safe.
-  async function broadcastOnce(notifyId: string, text: string) {
+  async function broadcastOnce(notifyId: string, text: string, parseMode: 'Markdown' | 'HTML' = 'Markdown') {
     if (await db.isNotificationSent(notifyId)) return;
     await db.markNotificationSent(notifyId);
 
@@ -80,7 +84,7 @@ export async function syncMatches(env: Env) {
       const batch = subs.slice(i, i + BATCH_SIZE);
       await Promise.allSettled(
         batch.map(sub =>
-          bot.api.sendMessage(sub.chat_id, text, { parse_mode: 'Markdown' }).catch(() => {})
+          bot.api.sendMessage(sub.chat_id, text, { parse_mode: parseMode }).catch(() => {})
         )
       );
     }
@@ -293,11 +297,18 @@ export async function syncMatches(env: Env) {
                  }
                  await broadcastOnce(`halftime_${dbMatch.id}`, text);
               } else if ((isDbLive || dbMatch.status === 'PAUSED') && status === 'FINISHED') {
-                 let text = `🏁 *FULL TIME*\n\n${dbMatch.team1_name} *${score1} - ${score2}* ${dbMatch.team2_name}`;
+                 const f1 = dbMatch.t1_flag || '🏳️';
+                 const f2 = dbMatch.t2_flag || '🏳️';
+                 let text = `🏁 <b>FULL TIME</b>\n\n`;
+                 text += `${f1} ${dbMatch.team1_name} <b>${score1} - ${score2}</b> ${dbMatch.team2_name} ${f2}\n\n`;
                  if (stats1 && stats2) {
-                    text += `\n\n📊 *Match Stats:*\nPossession: ${stats1.possession}% - ${stats2.possession}%\nShots: ${stats1.shots} - ${stats2.shots}\nCorners: ${stats1.corners} - ${stats2.corners}\nFouls: ${stats1.fouls} - ${stats2.fouls}`;
+                    text += `📊 Match Stats\n`;
+                    text += `<blockquote>Possession ${stats1.possession}% - ${stats2.possession}%\n`;
+                    text += `Shots  ${stats1.shots} - ${stats2.shots}\n`;
+                    text += `Corners  ${stats1.corners} - ${stats2.corners}\n`;
+                    text += `Fouls  ${stats1.fouls} - ${stats2.fouls}</blockquote>`;
                  }
-                 await broadcastOnce(`fulltime_${dbMatch.id}`, text);
+                 await broadcastOnce(`fulltime_${dbMatch.id}`, text, 'HTML');
               }
 
               // Extract live clock

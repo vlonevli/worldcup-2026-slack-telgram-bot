@@ -107,7 +107,12 @@ export class DBClient {
   async getNextMatch(): Promise<Match | null> {
     const now = Date.now();
     const { results } = await this.db.prepare(
-      `SELECT * FROM matches WHERE kickoff_utc >= ? ORDER BY kickoff_utc ASC LIMIT 1`
+      `SELECT m.*, t1.flag_icon as t1_flag, t2.flag_icon as t2_flag 
+       FROM matches m 
+       JOIN teams t1 ON m.team1_name = t1.name 
+       JOIN teams t2 ON m.team2_name = t2.name 
+       WHERE m.kickoff_utc >= ? 
+       ORDER BY m.kickoff_utc ASC LIMIT 1`
     ).bind(now).all<Match>();
     return results?.[0] || null;
   }
@@ -323,17 +328,21 @@ export class DBClient {
 
   async getTeamLastMatch(teamName: string): Promise<Match | null> {
     return await this.db.prepare(
-      `SELECT * FROM matches 
-       WHERE (team1_name = ? OR team2_name = ?) AND status = 'FINISHED' 
-       ORDER BY kickoff_utc DESC LIMIT 1`
+      `SELECT m.*, t1.flag_icon as t1_flag, t2.flag_icon as t2_flag FROM matches m
+       JOIN teams t1 ON m.team1_name = t1.name 
+       JOIN teams t2 ON m.team2_name = t2.name 
+       WHERE (m.team1_name = ? OR m.team2_name = ?) AND m.status = 'FINISHED' 
+       ORDER BY m.kickoff_utc DESC LIMIT 1`
     ).bind(teamName, teamName).first<Match>();
   }
 
   async getTeamNextMatch(teamName: string): Promise<Match | null> {
     return await this.db.prepare(
-      `SELECT * FROM matches 
-       WHERE (team1_name = ? OR team2_name = ?) AND status != 'FINISHED' 
-       ORDER BY kickoff_utc ASC LIMIT 1`
+      `SELECT m.*, t1.flag_icon as t1_flag, t2.flag_icon as t2_flag FROM matches m
+       JOIN teams t1 ON m.team1_name = t1.name 
+       JOIN teams t2 ON m.team2_name = t2.name 
+       WHERE (m.team1_name = ? OR m.team2_name = ?) AND m.status != 'FINISHED' 
+       ORDER BY m.kickoff_utc ASC LIMIT 1`
     ).bind(teamName, teamName).first<Match>();
   }
 

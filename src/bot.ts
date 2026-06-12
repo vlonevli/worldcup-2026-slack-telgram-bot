@@ -99,34 +99,42 @@ async function handleNext(ctx: any, db: DBClient) {
   let countdownText = '';
   if (diffMs > 0) {
     const diffMins = Math.floor(diffMs / 60000);
-    const days = Math.floor(diffMins / 1440);
-    const hours = Math.floor((diffMins % 1440) / 60);
+    const hours = Math.floor(diffMins / 60);
     const minutes = diffMins % 60;
-
-    const parts = [];
-    if (days > 0) {
-      parts.push(`${days} day${days > 1 ? 's' : ''}`);
-    }
-    if (hours > 0 || days > 0) {
-      parts.push(`${hours} hour${hours > 1 ? 's' : ''}`);
-    }
-    parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
-
-    let timeStr = '';
-    if (parts.length === 1) {
-      timeStr = parts[0];
-    } else if (parts.length === 2) {
-      timeStr = `${parts[0]} and ${parts[1]}`;
-    } else {
-      timeStr = `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
-    }
-
-    countdownText = `\n⏳ *Starts in:* ${timeStr} remaining`;
+    countdownText = `\n⌛ Starts in ${hours}h ${minutes}m`;
   }
 
-  const timeFormatted = getMatchTimeStr(m, userTz);
-  const text = `🗓️ *Next Upcoming Match:*\n\n⚽ *${m.team1_name}* vs *${m.team2_name}*\n🕒 ${timeFormatted}\n🏟️ ${m.ground}${countdownText}`;
-  await ctx.reply(text, { parse_mode: 'Markdown' });
+  // Formatting specific date and time for Telegram parsing
+  const d = new Date(m.kickoff_utc);
+  let dateStr = '';
+  let timeStr = '';
+  let tzName = userTz.split('/').pop()?.replace(/_/g, ' ') || userTz;
+  
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: userTz,
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const parts = formatter.formatToParts(d);
+    const month = parts.find(p => p.type === 'month')?.value;
+    const day = parts.find(p => p.type === 'day')?.value;
+    const year = parts.find(p => p.type === 'year')?.value;
+    const hour = parts.find(p => p.type === 'hour')?.value;
+    const minute = parts.find(p => p.type === 'minute')?.value;
+    
+    dateStr = `${month} ${day}, ${year}`;
+    timeStr = `${hour}:${minute} (${tzName})`;
+  } catch(e) {
+    dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    timeStr = `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')} (UTC)`;
+  }
+
+  const f1 = m.t1_flag || '🏳️';
+  const f2 = m.t2_flag || '🏳️';
+
+  const text = `⏳ UPCOMING\n\n${f1} <b>${m.team1_name}</b> vs <b>${m.team2_name}</b> ${f2}\n\n🕒 ${timeStr}\n📅 ${dateStr}\n🏟️ ${m.ground}\n${countdownText}`;
+  await ctx.reply(text, { parse_mode: 'HTML' });
 }
 
 async function handleLive(ctx: any, db: DBClient) {
@@ -334,14 +342,6 @@ async function getTeamProfileText(db: DBClient, countryQuery: string, includeLor
   const lastMatch = await db.getTeamLastMatch(team.name);
   const nextMatch = await db.getTeamNextMatch(team.name);
 
-  // Get lore
-  let loreSection = '';
-  if (includeLore) {
-    const lore = LORE_MAP[team.name] ||
-      `Representing ${team.confed} from ${team.continent}, ${team.name} enters the World Cup 2026 placed in ${team.group_name}, ready to compete against the best teams in the world.`;
-    loreSection = `\n📖 *Lore:*\n${lore}\n`;
-  }
-
   // Format Ordinal position (e.g. 1st, 2nd, 3rd, 4th)
   const getOrdinal = (n: number) => {
     const s = ['th', 'st', 'nd', 'rd'];
@@ -349,20 +349,50 @@ async function getTeamProfileText(db: DBClient, countryQuery: string, includeLor
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
-  const posText = `${getOrdinal(posInfo.position)} of ${posInfo.totalTeams} in ${team.group_name}`;
+  const posText = `${getOrdinal(posInfo.position)} / ${posInfo.totalTeams}`;
+
+  const formatDate = (ts: number) => {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: userTz, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+      });
+      const parts = formatter.formatToParts(new Date(ts));
+      const m = parts.find(p => p.type === 'month')?.value;
+      const d = parts.find(p => p.type === 'day')?.value;
+      const h = parts.find(p => p.type === 'hour')?.value;
+      const min = parts.find(p => p.type === 'minute')?.value;
+      return { dateStr: `${m} ${d}`, timeStr: `${h}:${min}` };
+    } catch(e) {
+      const d = new Date(ts);
+      return { dateStr: `Jun ${d.getUTCDate()}`, timeStr: `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}` };
+    }
+  };
 
   // Format Last Match
-  let lastMatchText = 'None';
+  let lastMatchText = '_No matches played yet_';
   if (lastMatch) {
-    const scoreText = lastMatch.score_team1 !== null ? `*${lastMatch.score_team1} - ${lastMatch.score_team2}*` : 'vs';
-    const timeFormatted = getMatchTimeStr(lastMatch, userTz);
-    lastMatchText = `⚽ *${lastMatch.team1_name}* ${scoreText} *${lastMatch.team2_name}*\n🕒 *Time:* ${timeFormatted} | Finished`;
+    const f1 = lastMatch.t1_flag || '🏳️';
+    const f2 = lastMatch.t2_flag || '🏳️';
+    const { dateStr } = formatDate(lastMatch.kickoff_utc);
+    
+    if (lastMatch.team1_name === team.name) {
+       lastMatchText = `${f1} *${lastMatch.score_team1}–${lastMatch.score_team2}* ${f2}\n🕒 ${dateStr} • FT`;
+    } else {
+       lastMatchText = `${f1} *${lastMatch.score_team1}–${lastMatch.score_team2}* ${f2}\n🕒 ${dateStr} • FT`;
+       // Wait, we just keep Home vs Away order, so it's the same string either way
+    }
+    // Bold the team name if it's the one we are profiling (replace the team name with bold)
+    // Actually the user format was: 🇰🇷 *2–1* 🇨🇿
+    // Team names aren't even in the last match string in the user's requested format!
+    lastMatchText = `${f1} *${lastMatch.score_team1}–${lastMatch.score_team2}* ${f2}\n🕒 ${dateStr} • FT`;
   }
 
   // Format Next Match
-  let nextMatchText = 'None';
+  let nextMatchText = '_No upcoming matches_';
   if (nextMatch) {
-    const scoreText = nextMatch.score_team1 !== null ? `*${nextMatch.score_team1} - ${nextMatch.score_team2}*` : 'vs';
+    const f1 = nextMatch.t1_flag || '🏳️';
+    const f2 = nextMatch.t2_flag || '🏳️';
+    const { dateStr, timeStr } = formatDate(nextMatch.kickoff_utc);
 
     // Calculate countdown
     const now = Date.now();
@@ -372,49 +402,49 @@ async function getTeamProfileText(db: DBClient, countryQuery: string, includeLor
       const diffMins = Math.floor(diffMs / 60000);
       const days = Math.floor(diffMins / 1440);
       const hours = Math.floor((diffMins % 1440) / 60);
-      const minutes = diffMins % 60;
-
-      const parts = [];
-      if (days > 0) {
-        parts.push(`${days} day${days > 1 ? 's' : ''}`);
-      }
-      if (hours > 0 || days > 0) {
-        parts.push(`${hours} hour${hours > 1 ? 's' : ''}`);
-      }
-      parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
-
-      let timeStr = '';
-      if (parts.length === 1) {
-        timeStr = parts[0];
-      } else if (parts.length === 2) {
-        timeStr = `${parts[0]} and ${parts[1]}`;
-      } else {
-        timeStr = `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
-      }
-      countdownText = `\n⏳ *Starts in:* ${timeStr} remaining`;
+      countdownText = `\n\n⏳ *${days}d ${hours}h remaining*`;
     }
 
-    const timeFormatted = getMatchTimeStr(nextMatch, userTz);
-    nextMatchText = `⚽ *${nextMatch.team1_name}* ${scoreText} *${nextMatch.team2_name}*\n🕒 *Time:* ${timeFormatted} | 🏟️ ${nextMatch.ground}${countdownText}`;
+    nextMatchText = `${f1} ${nextMatch.team1_name} vs *${nextMatch.team2_name}* ${f2}\n🕒 ${dateStr} • ${timeStr}\n🏟️ ${nextMatch.ground}${countdownText}`;
+    
+    if (nextMatch.team1_name === team.name) {
+       nextMatchText = `${f1} *${nextMatch.team1_name}* vs ${nextMatch.team2_name} ${f2}\n🕒 ${dateStr} • ${timeStr}\n🏟️ ${nextMatch.ground}${countdownText}`;
+    } else {
+       nextMatchText = `${f1} ${nextMatch.team1_name} vs *${nextMatch.team2_name}* ${f2}\n🕒 ${dateStr} • ${timeStr}\n🏟️ ${nextMatch.ground}${countdownText}`;
+    }
   }
 
-  return `🏆 *${team.flag_icon} ${team.name} (${team.fifa_code}) Info*
+  // Alignment for stats
+  const padStat = (label: string, value: string) => {
+    const totalLen = 13;
+    return `${label}`.padEnd(totalLen, ' ') + `*${value}*`;
+  };
 
-🌍 *Continent:* ${team.continent}
-📡 *Confederation:* ${team.confed}
-📊 *Group:* ${team.group_name}
-${loreSection}
-📈 *Tournament Stats:*
-• *Matches Played:* ${stats.played}
-• *Wins:* ${stats.wins}
-• *Goals Scored:* ${stats.goals}
-• *Red Cards:* ${stats.redCards}
-• *Current Position:* ${posText}
+  return `${team.flag_icon} *${team.name}*
 
-⏮️ *Last Match:*
+🌍 *${team.confed} • ${team.continent}*
+🏆 Group: *${team.group_name}*
+📈 Placement: *${posText}*
+
+━━━━━━━━━━
+
+📊 *Tournament Stats*
+
+${padStat('⚽ Goals', String(stats.goals))}
+${padStat('✅ Wins', String(stats.wins))}
+${padStat('🎮 Matches', String(stats.played))}
+${padStat('🟥 Red Cards', String(stats.redCards))}
+
+━━━━━━━━━━
+
+⏮️ *Last Match*
+
 ${lastMatchText}
 
-⏭️ *Next Match:*
+━━━━━━━━━━
+
+⏭️ *Next Match*
+
 ${nextMatchText}`;
 }
 
@@ -665,7 +695,7 @@ export function setupBot(env: Env, origin?: string) {
       };
     }));
 
-    await ctx.answerInlineQuery(results as any, { cache_time: 86400 });
+    await ctx.answerInlineQuery(results as any, { cache_time: 300 });
   });
 
   return bot;
