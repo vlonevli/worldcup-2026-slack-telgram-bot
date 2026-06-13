@@ -175,7 +175,7 @@ export async function syncMatches(env: Env) {
                     possession: extractStat(homeCompetitor, 'possessionPct'),
                     shots: extractStat(homeCompetitor, 'totalShots'),
                     shotsOnTarget: extractStat(homeCompetitor, 'shotsOnTarget'),
-                    corners: extractStat(homeCompetitor, 'cornerKicks'),
+                    corners: extractStat(homeCompetitor, 'wonCorners'),
                     offsides: extractStat(homeCompetitor, 'offsides'),
                     fouls: extractStat(homeCompetitor, 'foulsCommitted'),
                     saves: extractStat(homeCompetitor, 'saves')
@@ -184,7 +184,7 @@ export async function syncMatches(env: Env) {
                     possession: extractStat(awayCompetitor, 'possessionPct'),
                     shots: extractStat(awayCompetitor, 'totalShots'),
                     shotsOnTarget: extractStat(awayCompetitor, 'shotsOnTarget'),
-                    corners: extractStat(awayCompetitor, 'cornerKicks'),
+                    corners: extractStat(awayCompetitor, 'wonCorners'),
                     offsides: extractStat(awayCompetitor, 'offsides'),
                     fouls: extractStat(awayCompetitor, 'foulsCommitted'),
                     saves: extractStat(awayCompetitor, 'saves')

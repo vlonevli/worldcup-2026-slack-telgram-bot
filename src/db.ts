@@ -16,6 +16,7 @@ export interface Match {
   score_team1: number | null;
   score_team2: number | null;
   score_pen_team1: number | null;
+  score_pen_team2: number | null;
   status: string;
   ground: string;
   live_clock?: string;
