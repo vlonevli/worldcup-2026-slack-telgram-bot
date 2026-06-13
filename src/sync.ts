@@ -45,6 +45,7 @@ function mapEspnStatus(espnStatus: string): string {
     case 'STATUS_SECOND_HALF':
       return 'IN_PLAY';
     case 'STATUS_HALFTIME':
+    case 'STATUS_HALF_TIME':
       return 'PAUSED';
     case 'STATUS_FINAL':
     case 'STATUS_FULL_TIME':
@@ -218,6 +219,7 @@ export async function syncMatches(env: Env) {
               const clockIntNum = parseInt(liveClock.replace(/[^0-9]/g, '')) || 0;
 
               // Pre-calculate live probability for notifications
+              const matchEvents = comp.details || espnEvent.details || [];
               const rcs1 = matchEvents.filter((e: any) => e.redCard && e.team?.id === homeCompetitor?.team?.id).length;
               const rcs2 = matchEvents.filter((e: any) => e.redCard && e.team?.id === awayCompetitor?.team?.id).length;
               
@@ -228,6 +230,8 @@ export async function syncMatches(env: Env) {
               const probTextHTML = formatLiveWinProbability(liveProb);
 
               // Process Events (Cards, Goals, Penalties)
+              const recentGoals1: string[] = [];
+              const recentGoals2: string[] = [];
               for (const ev of matchEvents) {
                  const clock = ev.clock?.displayValue || String(ev.clock?.value || 0);
                  const typeId = ev.type?.id;
@@ -323,8 +327,6 @@ export async function syncMatches(env: Env) {
                  await broadcastOnce(`fulltime_${dbMatch.id}`, text, 'HTML');
               }
 
-              // Extract live clock
-              const liveClock = espnEvent.status?.displayClock || espnEvent.status?.type?.detail || '';
 
               // Update database if changed
               if (dbMatch.status !== status || dbMatch.score_team1 !== score1 || dbMatch.score_team2 !== score2 || dbMatch.live_clock !== liveClock) {
@@ -406,6 +408,9 @@ export async function syncMatches(env: Env) {
               if (dbMatch.status === 'SCHEDULED' && isMatchActive) {
                  const text = `⏱️ *KICKOFF!*\n\nThe match between *${dbMatch.team1_name}* and *${dbMatch.team2_name}* has started!\n🏟️ ${dbMatch.ground}`;
                  await broadcastOnce(`kickoff_${dbMatch.id}`, text);
+              } else if (dbMatch.status === 'PAUSED' && (status === 'IN_PLAY' || status === 'LIVE')) {
+                 const text = `▶️ *SECOND HALF STARTED*\n\n${dbMatch.team1_name} *${score1} - ${score2}* ${dbMatch.team2_name}`;
+                 await broadcastOnce(`secondhalf_${dbMatch.id}`, text);
               } else if (isDbLive && status === 'PAUSED') {
                  const text = `⏸️ *HALF TIME*\n\n${dbMatch.team1_name} *${score1} - ${score2}* ${dbMatch.team2_name}`;
                  await broadcastOnce(`halftime_${dbMatch.id}`, text);
