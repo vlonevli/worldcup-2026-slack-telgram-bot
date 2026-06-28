@@ -1,6 +1,6 @@
 import { Bot, Keyboard, InlineKeyboard } from 'grammy';
 import { Env, DBClient, Match } from './db';
-import { calculatePreMatchChances, calculateLiveProbability, formatLiveWinProbability } from './probability';
+import { calculatePreMatchChances, calculateLiveProbability, formatLiveWinProbability, PreMatchFactors } from './probability';
 
 function formatTimeForTimezone(kickoffUtc: number | string, tz: string): string {
   const ts = Number(kickoffUtc); // Safely coerce — D1 sometimes returns integers as strings
@@ -50,7 +50,8 @@ function isValidTimezone(tz: string): boolean {
 const mainKeyboard = new Keyboard()
   .text('🏆 Matches Today').text('🗓️ Next Match').row()
   .text('📊 Standings').text('📡 Live Matches').row()
-  .text('🌟Team Profile').text('⚙️ Settings')
+  .text('🌟Team Profile').text('⚙️ Settings').row()
+  .text('❔ Help')
   .resized();
 
 // Inline Keyboard for Groups A-L
@@ -237,6 +238,117 @@ async function handleLive(ctx: any, db: DBClient) {
   }
 
   await ctx.reply(text, { parse_mode: 'HTML' });
+}
+
+function formatFactorsText(team1: string, team2: string, f: PreMatchFactors): string {
+  const getAdv = (v1: number, v2: number, invert: boolean = false) => {
+    if (v1 === v2) return 'Even';
+    const diff = v1 - v2;
+    if (invert ? diff < 0 : diff > 0) return `Adv: ${team1}`;
+    return `Adv: ${team2}`;
+  };
+
+  let homeStatus = `Neutral vs Neutral`;
+  if (f.home1) homeStatus = `Home vs Neutral (Adv: ${team1})`;
+  if (f.home2) homeStatus = `Neutral vs Home (Adv: ${team2})`;
+
+  return `<b>Factors (${team1} vs ${team2}):</b>
+<blockquote>📈 ELO: ${f.elo1} vs ${f.elo2} (${getAdv(f.elo1, f.elo2)})
+🔥 Form (xG): ${f.form1} vs ${f.form2} (${getAdv(f.form1, f.form2)})
+🏟️ Home Adv: ${homeStatus}
+💰 Squad Value: ${f.squad1} vs ${f.squad2} (${getAdv(f.squad1, f.squad2)})
+🏥 Injuries Impact: ${f.inj1} vs ${f.inj2} (${getAdv(f.inj1, f.inj2, true)})</blockquote>`;
+}
+
+async function handleChance(ctx: any, db: DBClient, query: string) {
+  if (!query) {
+    await ctx.reply('Please specify an argument for /chance.\nOptions: `now`, `next`, or a `country name`.\nExample: `/chance now` or `/chance Germany`', { parse_mode: 'Markdown' });
+    return;
+  }
+
+  const q = query.toLowerCase();
+  let matchesToProcess: Match[] = [];
+  let headerText = '';
+
+  if (q === 'now' || q === 'live') {
+    matchesToProcess = await db.getLiveMatches();
+    if (matchesToProcess.length === 0) {
+      await ctx.reply('No matches are currently live.');
+      return;
+    }
+    headerText = '🔴 <b>LIVE WIN CHANCES</b>';
+  } else if (q === 'next') {
+    const nextM = await db.getNextMatch();
+    if (!nextM) {
+      await ctx.reply('No upcoming matches scheduled.');
+      return;
+    }
+    matchesToProcess = [nextM];
+    headerText = '⏳ <b>NEXT MATCH WIN CHANCE</b>';
+  } else {
+    const team = await db.getTeamByNameOrCode(query);
+    if (!team) {
+      await ctx.reply(`❌ Could not find a team matching "${query}".`);
+      return;
+    }
+    let m = await db.getTeamNextMatch(team.name);
+    // If team has a live match, show that instead
+    const liveMatches = await db.getLiveMatches();
+    const liveM = liveMatches.find(lm => lm.team1_name === team.name || lm.team2_name === team.name);
+    if (liveM) m = liveM;
+
+    if (!m) {
+      await ctx.reply(`No upcoming or live match found for ${team.name}.`);
+      return;
+    }
+    matchesToProcess = [m];
+    headerText = `🏆 <b>WIN CHANCE FOR ${team.name}</b>`;
+  }
+
+  let response = `${headerText}\n\n`;
+
+  for (const m of matchesToProcess) {
+    const f1 = m.t1_flag || '🏳️';
+    const f2 = m.t2_flag || '🏳️';
+    const isLive = m.status === 'LIVE' || m.status === 'IN_PLAY' || m.status === 'PAUSED';
+
+    let probStr = '';
+    let factorsStr = '';
+
+    if (isLive) {
+      const stats = await db.getMatchStats(m.id);
+      const s1 = stats.find(s => s.team_name === m.team1_name);
+      const s2 = stats.find(s => s.team_name === m.team2_name);
+      const events = await db.getMatchEvents(m.id);
+      const reds = events.filter(e => e.type === 'RED_CARD');
+
+      const liveProb = calculateLiveProbability(
+        m.team1_name, f1, m.team2_name, f2,
+        m.score_team1 ?? 0, m.score_team2 ?? 0,
+        reds.filter(r => r.team_name === m.team1_name).length,
+        reds.filter(r => r.team_name === m.team2_name).length,
+        s1, s2, m.live_clock || '0'
+      );
+
+      probStr = `📊 <b>Live Win Probability</b>\n<blockquote>${f1} ${m.team1_name} ${liveProb.win1}%\n🤝 Draw ${liveProb.draw}%\n${f2} ${m.team2_name} ${liveProb.win2}%</blockquote>`;
+      if (liveProb.preMatchFactors) {
+        factorsStr = formatFactorsText(m.team1_name, m.team2_name, liveProb.preMatchFactors);
+      }
+    } else {
+      const preProb = calculatePreMatchChances(m.team1_name, m.team2_name);
+      probStr = `📊 <b>Pre-Match Win Probability</b>\n<blockquote>${f1} ${m.team1_name} ${preProb.w1}%\n🤝 Draw ${preProb.d}%\n${f2} ${m.team2_name} ${preProb.w2}%</blockquote>`;
+      factorsStr = formatFactorsText(m.team1_name, m.team2_name, preProb.factors);
+    }
+
+    const clock = isLive ? (m.live_clock ? `${m.live_clock} LIVE` : 'LIVE') : m.time_str;
+    response += `${f1} <b>${m.team1_name}</b> vs <b>${m.team2_name}</b> ${f2}\n🕒 ${clock}\n\n${probStr}\n\n${factorsStr}\n\n──────────────────\n\n`;
+  }
+
+  if (response.endsWith(`──────────────────\n\n`)) {
+     response = response.slice(0, -20);
+  }
+
+  await ctx.reply(response, { parse_mode: 'HTML' });
 }
 
 function visualLength(str: string): number {
@@ -505,6 +617,30 @@ export function setupBot(env: Env, origin?: string) {
     }
   });
 
+  bot.command('help', async (ctx) => {
+    const helpText = `🤖 *World Cup 2026 Bot Help*
+
+Here are the commands you can use:
+
+/start - Register for notifications and see the main menu
+/subscribe - Subscribe a group/channel to live match notifications (goals, cards, kickoffs, HT/FT)
+/unsubscribe - Stop receiving live match notifications in the current chat
+/timezone [tz] - Set your timezone (e.g. \`/timezone America/New_York\`)
+/wctoday - Show all matches scheduled for today
+/wcnext - Show the very next upcoming match
+/wclive - Show all currently live matches with minute-by-minute updates
+/wctable [group] - View standings for a specific group (e.g. \`/wctable A\`)
+/state [country] - View full profile, stats, next/last match for a specific team (e.g. \`/state Germany\`)
+/chance [tag] - View live or pre-match win probabilities based on advanced factors (ELO, form, injuries). Tags: \`now\`, \`next\`, or a \`Country Name\`.
+
+🔍 *Inline Search*
+Type \`@yourbotname\` followed by a country name in any chat to quickly share a team's profile and stats!
+
+💬 *Live Match Updates*
+The bot will automatically broadcast goals, red/yellow cards, and match period transitions to subscribed chats.`;
+    await ctx.reply(helpText, { parse_mode: 'Markdown' });
+  });
+
   // /subscribe — lets any group/channel register for live match notifications
   bot.command('subscribe', async (ctx) => {
     const db = new DBClient(env.DB);
@@ -578,6 +714,12 @@ export function setupBot(env: Env, origin?: string) {
     const db = new DBClient(env.DB);
     const query = ctx.match?.trim();
     await handleState(ctx, db, query);
+  });
+
+  bot.command('chance', async (ctx) => {
+    const db = new DBClient(env.DB);
+    const query = ctx.match?.trim();
+    await handleChance(ctx, db, query);
   });
 
   // Handle bot being added or removed from a group/channel
@@ -663,6 +805,28 @@ export function setupBot(env: Env, origin?: string) {
           reply_markup: new InlineKeyboard().text('🕒 Change Timezone', 'settings_timezone')
         }
       );
+    } else if (text === '❔ Help') {
+      const helpText = `🤖 *World Cup 2026 Bot Help*
+
+Here are the commands you can use:
+
+/start - Register for notifications and see the main menu
+/subscribe - Subscribe a group/channel to live match notifications (goals, cards, kickoffs, HT/FT)
+/unsubscribe - Stop receiving live match notifications in the current chat
+/timezone [tz] - Set your timezone (e.g. \`/timezone America/New_York\`)
+/wctoday - Show all matches scheduled for today
+/wcnext - Show the very next upcoming match
+/wclive - Show all currently live matches with minute-by-minute updates
+/wctable [group] - View standings for a specific group (e.g. \`/wctable A\`)
+/state [country] - View full profile, stats, next/last match for a specific team (e.g. \`/state Germany\`)
+/chance [tag] - View live or pre-match win probabilities based on advanced factors (ELO, form, injuries). Tags: \`now\`, \`next\`, or a \`Country Name\`.
+
+🔍 *Inline Search*
+Type \`@yourbotname\` followed by a country name in any chat to quickly share a team's profile and stats!
+
+💬 *Live Match Updates*
+The bot will automatically broadcast goals, red/yellow cards, and match period transitions to subscribed chats.`;
+      await ctx.reply(helpText, { parse_mode: 'Markdown' });
     } else {
       // Only do database lookups for random text in private chats.
       // Doing this in group chats overloads the DB for every normal user message.

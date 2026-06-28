@@ -1,0 +1,166 @@
+{
+    "stage": "Round of 32",
+    "format": "single_elimination",
+    "matches": [
+        {
+            "id": 1,
+            "team1": "South Africa",
+            "team2": "Canada",
+            "date": "2026-06-28",
+            "time": "12:00",
+            "venue": "Los Angeles",
+            "winner": "Canada",
+            "score": "0-1"
+        },
+        {
+            "id": 2,
+            "team1": "Brazil",
+            "team2": "Japan",
+            "date": "2026-06-29",
+            "time": "12:00",
+            "venue": "Houston",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 3,
+            "team1": "Germany",
+            "team2": "Paraguay",
+            "date": "2026-06-29",
+            "time": "16:30",
+            "venue": "Boston",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 4,
+            "team1": "Netherlands",
+            "team2": "Morocco",
+            "date": "2026-06-29",
+            "time": "19:00",
+            "venue": "Monterrey",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 5,
+            "team1": "Ivory Coast",
+            "team2": "Norway",
+            "date": "2026-06-30",
+            "time": "13:00",
+            "venue": "Dallas",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 6,
+            "team1": "France",
+            "team2": "Sweden",
+            "date": "2026-06-30",
+            "time": "17:00",
+            "venue": "New York",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 7,
+            "team1": "Mexico",
+            "team2": "Ecuador",
+            "date": "2026-06-30",
+            "time": "21:00",
+            "venue": "Mexico City",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 8,
+            "team1": "England",
+            "team2": "DR Congo",
+            "date": "2026-07-01",
+            "time": "12:00",
+            "venue": "Atlanta",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 9,
+            "team1": "Belgium",
+            "team2": "Senegal",
+            "date": "2026-07-01",
+            "time": "16:00",
+            "venue": "USA Stadium",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 10,
+            "team1": "USA",
+            "team2": "Bosnia and Herzegovina",
+            "date": "2026-07-01",
+            "time": "20:00",
+            "venue": "California",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 11,
+            "team1": "Spain",
+            "team2": "Austria",
+            "date": "2026-07-02",
+            "time": "15:00",
+            "venue": "Unknown",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 12,
+            "team1": "Portugal",
+            "team2": "Croatia",
+            "date": "2026-07-02",
+            "time": "19:00",
+            "venue": "Unknown",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 13,
+            "team1": "Switzerland",
+            "team2": "Algeria",
+            "date": "2026-07-02",
+            "time": "23:00",
+            "venue": "Unknown",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 14,
+            "team1": "Australia",
+            "team2": "Egypt",
+            "date": "2026-07-03",
+            "time": "14:00",
+            "venue": "Unknown",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 15,
+            "team1": "Argentina",
+            "team2": "Cape Verde",
+            "date": "2026-07-03",
+            "time": "18:00",
+            "venue": "Unknown",
+            "winner": null,
+            "score": null
+        },
+        {
+            "id": 16,
+            "team1": "Colombia",
+            "team2": "Ghana",
+            "date": "2026-07-03",
+            "time": "21:30",
+            "venue": "Unknown",
+            "winner": null,
+            "score": null
+        }
+    ]
+}

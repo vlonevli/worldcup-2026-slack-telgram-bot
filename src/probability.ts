@@ -1,3 +1,16 @@
+export interface PreMatchFactors {
+  elo1: number;
+  elo2: number;
+  form1: number;
+  form2: number;
+  squad1: number;
+  squad2: number;
+  inj1: number;
+  inj2: number;
+  home1: boolean;
+  home2: boolean;
+}
+
 export interface WinProbability {
   win1: number;
   draw: number;
@@ -6,88 +19,106 @@ export interface WinProbability {
   t2Flag: string;
   team1Name: string;
   team2Name: string;
+  preMatchFactors?: PreMatchFactors;
 }
 
-const BASE_POWER_RATINGS: Record<string, number> = {
-  'Argentina': 94,
-  'France': 93,
-  'Brazil': 91,
-  'England': 90,
-  'Spain': 89,
-  'Portugal': 88,
-  'Germany': 87,
-  'Netherlands': 86,
-  'Italy': 85,
-  'Uruguay': 84,
-  'Croatia': 83,
-  'Belgium': 82,
-  'Morocco': 81,
-  'Colombia': 80,
-  'Senegal': 79,
-  'Japan': 78,
-  'USA': 77,
-  'Switzerland': 76,
-  'Mexico': 75,
-  'Denmark': 74,
-  'South Korea': 73,
-  'Australia': 72,
-  'Canada': 70,
-  'Ecuador': 69,
-  'Cameroon': 68,
-  'Ghana': 67,
-  'Wales': 66,
-  'Poland': 65,
-  'Iran': 64,
-  'Serbia': 63,
-  'Saudi Arabia': 60
+interface TeamStats {
+  elo: number;
+  form: number;
+  squadValue: number;
+  injuries: number;
+}
+
+const TEAM_STATS: Record<string, TeamStats> = {
+  'Argentina': { elo: 2140, form: 90, squadValue: 95, injuries: 10 },
+  'France': { elo: 2110, form: 88, squadValue: 98, injuries: 15 },
+  'Brazil': { elo: 2080, form: 82, squadValue: 94, injuries: 25 },
+  'England': { elo: 2070, form: 85, squadValue: 100, injuries: 10 },
+  'Spain': { elo: 2060, form: 89, squadValue: 92, injuries: 20 },
+  'Portugal': { elo: 2050, form: 86, squadValue: 90, injuries: 10 },
+  'Germany': { elo: 2040, form: 84, squadValue: 88, injuries: 15 },
+  'Netherlands': { elo: 2020, form: 82, squadValue: 85, injuries: 20 },
+  'Italy': { elo: 2010, form: 83, squadValue: 86, injuries: 15 },
+  'Uruguay': { elo: 2000, form: 85, squadValue: 80, injuries: 10 },
+  'Croatia': { elo: 1980, form: 80, squadValue: 75, injuries: 20 },
+  'Belgium': { elo: 1970, form: 75, squadValue: 78, injuries: 25 },
+  'Morocco': { elo: 1950, form: 82, squadValue: 72, injuries: 10 },
+  'Colombia': { elo: 1940, form: 88, squadValue: 74, injuries: 10 },
+  'Senegal': { elo: 1910, form: 78, squadValue: 68, injuries: 15 },
+  'Japan': { elo: 1900, form: 80, squadValue: 65, injuries: 5 },
+  'USA': { elo: 1880, form: 75, squadValue: 62, injuries: 10 },
+  'Switzerland': { elo: 1870, form: 76, squadValue: 64, injuries: 15 },
+  'Mexico': { elo: 1860, form: 70, squadValue: 60, injuries: 20 },
+  'Denmark': { elo: 1850, form: 72, squadValue: 63, injuries: 10 },
+  'South Korea': { elo: 1840, form: 74, squadValue: 58, injuries: 10 },
+  'Australia': { elo: 1820, form: 70, squadValue: 50, injuries: 10 },
+  'Canada': { elo: 1800, form: 72, squadValue: 55, injuries: 5 },
+  'Ecuador': { elo: 1790, form: 75, squadValue: 60, injuries: 15 },
+  'Cameroon': { elo: 1780, form: 68, squadValue: 52, injuries: 20 },
+  'Ghana': { elo: 1770, form: 65, squadValue: 54, injuries: 20 },
+  'Wales': { elo: 1760, form: 64, squadValue: 50, injuries: 15 },
+  'Poland': { elo: 1750, form: 65, squadValue: 55, injuries: 20 },
+  'Iran': { elo: 1740, form: 70, squadValue: 48, injuries: 10 },
+  'Serbia': { elo: 1730, form: 68, squadValue: 58, injuries: 20 },
+  'Saudi Arabia': { elo: 1700, form: 65, squadValue: 45, injuries: 15 }
 };
 
-// Simple pseudo-random hash to give unlisted teams a deterministic rating (between 50 and 70)
-function getBaseRating(teamName: string): number {
-  if (BASE_POWER_RATINGS[teamName]) {
-    return BASE_POWER_RATINGS[teamName];
+function getTeamStats(teamName: string): TeamStats {
+  if (TEAM_STATS[teamName]) {
+    return TEAM_STATS[teamName];
   }
   let hash = 0;
   for (let i = 0; i < teamName.length; i++) {
     hash = teamName.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return 50 + (Math.abs(hash) % 21);
+  return {
+    elo: 1600 + (Math.abs(hash) % 200),
+    form: 50 + (Math.abs(hash) % 30),
+    squadValue: 40 + (Math.abs(hash) % 30),
+    injuries: 10 + (Math.abs(hash) % 20)
+  };
 }
 
-export function calculatePreMatchChances(team1: string, team2: string): { w1: number; d: number; w2: number; scoreDiff: number } {
-  const p1 = getBaseRating(team1);
-  const p2 = getBaseRating(team2);
+export function calculatePreMatchChances(team1: string, team2: string): { w1: number; d: number; w2: number; scoreDiff: number, factors: PreMatchFactors } {
+  const s1 = getTeamStats(team1);
+  const s2 = getTeamStats(team2);
   
-  // Base differences simulated based on power rating difference
-  const diff = p1 - p2; // Range roughly -40 to +40
+  const home1 = ['USA', 'Canada', 'Mexico'].includes(team1);
+  const home2 = ['USA', 'Canada', 'Mexico'].includes(team2);
 
-  // We convert the power diff to the "Total Score" the user asked for
-  // The user's example: Argentina vs Canada -> +56
-  // In our mapping, Argentina(94) - Canada(70) = +24. 
-  // Let's multiply by 2.3 to get roughly 55
-  const totalScore = diff * 2.3; 
+  // Weights: ELO 45%, Form 25%, Squad 10%, Injuries 10%, Home Adv 10%
+  const eloDiff = (s1.elo - s2.elo) / 8; // Max ~40 pts diff
+  const formDiff = (s1.form - s2.form) * 0.4; // Max ~40 pts diff
+  const squadDiff = (s1.squadValue - s2.squadValue) * 0.2; // Max ~20 pts diff
+  const injDiff = (s2.injuries - s1.injuries) * 0.2; // Higher injuries is bad, so s2-s1
 
-  // Base probabilities
-  // A totalScore of 0 means 38% win, 24% draw, 38% win.
-  // A totalScore of +56 means ~74% win, 18% draw, 8% win.
-  
-  // Sigmoid-ish mapping for win chance
-  let w1 = 38 + (totalScore * 0.65);
-  w1 = Math.max(5, Math.min(95, w1));
-  
-  // Draw chance peaks at 0 diff (24%), drops as diff increases
-  let d = 24 - (Math.abs(totalScore) * 0.12);
-  d = Math.max(2, Math.min(35, d));
+  let homeDiff = 0;
+  if (home1 && !home2) homeDiff = 15;
+  if (home2 && !home1) homeDiff = -15;
 
-  let w2 = 100 - w1 - d;
-  
-  // Re-normalize just in case
+  const totalScore = (eloDiff * 0.45) + (formDiff * 0.25) + (homeDiff * 0.10) + (squadDiff * 0.10) + (injDiff * 0.10);
+
+  let w1 = 38 + (totalScore * 2.5);
+  let w2 = 38 - (totalScore * 2.5);
+  let d = 24 - (Math.abs(totalScore) * 0.5);
+
+  w1 = Math.max(5, w1);
+  w2 = Math.max(5, w2);
+  d = Math.max(5, Math.min(35, d));
+
   const sum = w1 + d + w2;
   return {
     w1: Math.round((w1 / sum) * 100),
     d: Math.round((d / sum) * 100),
     w2: Math.round((w2 / sum) * 100),
-    scoreDiff: Math.round(totalScore)
+    scoreDiff: Math.round(totalScore),
+    factors: {
+      elo1: s1.elo, elo2: s2.elo,
+      form1: s1.form, form2: s2.form,
+      squad1: s1.squadValue, squad2: s2.squadValue,
+      inj1: s1.injuries, inj2: s2.injuries,
+      home1, home2
+    }
   };
 }
 
@@ -183,7 +214,8 @@ export function calculateLiveProbability(
     t1Flag,
     t2Flag,
     team1Name: team1,
-    team2Name: team2
+    team2Name: team2,
+    preMatchFactors: preMatch.factors
   };
 }
 
