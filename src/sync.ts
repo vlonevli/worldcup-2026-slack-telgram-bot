@@ -159,6 +159,11 @@ export async function syncMatches(env: Env) {
               const score1 = isNaN(hScore) ? (dbMatch.score_team1 ?? 0) : hScore;
               const score2 = isNaN(aScore) ? (dbMatch.score_team2 ?? 0) : aScore;
 
+              const hPenScore = homeCompetitor?.shootoutScore;
+              const aPenScore = awayCompetitor?.shootoutScore;
+              const penScore1 = hPenScore !== undefined ? Number(hPenScore) : dbMatch.score_pen_team1;
+              const penScore2 = aPenScore !== undefined ? Number(aPenScore) : dbMatch.score_pen_team2;
+
               const isMatchActive = status === 'IN_PLAY' || status === 'LIVE' || status === 'PAUSED' || status === 'FINISHED';
 
               // Extract Stats
@@ -252,14 +257,25 @@ export async function syncMatches(env: Env) {
                     eventType = 'GOAL';
                     if (ev.penaltyKick) detailStr = 'Penalty Kick';
                     if (ev.ownGoal) detailStr = 'Own Goal';
-                    if (teamName === dbMatch.team1_name) recentGoals1.push(`${playerName} (${clock})`);
-                    if (teamName === dbMatch.team2_name) recentGoals2.push(`${playerName} (${clock})`);
+                    const displayDetail = (ev.penaltyKick ? ' (Penalty)' : (ev.ownGoal ? ' (Own Goal)' : ''));
+                    if (teamName === dbMatch.team1_name) recentGoals1.push(`${playerName} (${clock})${displayDetail}`);
+                    if (teamName === dbMatch.team2_name) recentGoals2.push(`${playerName} (${clock})${displayDetail}`);
+                 } else if (ev.penaltyKick && !ev.scoringPlay && !ev.shootout) {
+                    eventType = 'MISSED_PENALTY';
+                    detailStr = 'Missed Penalty';
+                    notifyStr = `❌ <b>MISSED PENALTY!</b>\n\n<b>${playerName}</b> (${clock}) missed a penalty for <b>${teamName}</b>!`;
                  } else if (ev.redCard) {
                     eventType = 'RED_CARD';
                     notifyStr = `🟥 <b>RED CARD!</b>\n\n<b>${playerName}</b> (${clock}) has been sent off for <b>${teamName}</b>!\n\n${probTextHTML}`;
                  } else if (ev.yellowCard) {
                     eventType = 'YELLOW_CARD';
                     notifyStr = `🟨 *YELLOW CARD*\n\n*${playerName}* (${clock}) - *${teamName}*`;
+                 } else if (typeText.toUpperCase().includes('VAR')) {
+                    eventType = 'VAR';
+                    notifyStr = `📺 <b>VAR EVENT</b>\n\n<b>${typeText}</b>\n⏱ ${clock}`;
+                    if (playerName && playerName !== 'Unknown Player') {
+                       notifyStr += `\nPlayer: <b>${playerName}</b> (${teamName})`;
+                    }
                  }
 
                  if (eventType) {
@@ -316,7 +332,12 @@ export async function syncMatches(env: Env) {
                  const f1 = dbMatch.t1_flag || '🏳️';
                  const f2 = dbMatch.t2_flag || '🏳️';
                  let text = `🏁 <b>FULL TIME</b>\n\n`;
-                 text += `${f1} ${dbMatch.team1_name} <b>${score1} - ${score2}</b> ${dbMatch.team2_name} ${f2}\n\n`;
+                 if (penScore1 !== undefined && penScore1 !== null && penScore2 !== undefined && penScore2 !== null && (penScore1 > 0 || penScore2 > 0)) {
+                    text += `${f1} ${dbMatch.team1_name} <b>${score1} (${penScore1}) - (${penScore2}) ${score2}</b> ${dbMatch.team2_name} ${f2}\n\n`;
+                    text += `*(Penalty Shootout)*\n\n`;
+                 } else {
+                    text += `${f1} ${dbMatch.team1_name} <b>${score1} - ${score2}</b> ${dbMatch.team2_name} ${f2}\n\n`;
+                 }
                  if (stats1 && stats2) {
                     text += `📊 Match Stats\n`;
                     text += `<blockquote>Possession ${stats1.possession}% - ${stats2.possession}%\n`;
@@ -329,8 +350,8 @@ export async function syncMatches(env: Env) {
 
 
               // Update database if changed
-              if (dbMatch.status !== status || dbMatch.score_team1 !== score1 || dbMatch.score_team2 !== score2 || dbMatch.live_clock !== liveClock) {
-                 await db.updateMatch({ ...dbMatch, status, score_team1: score1, score_team2: score2, live_clock: liveClock });
+              if (dbMatch.status !== status || dbMatch.score_team1 !== score1 || dbMatch.score_team2 !== score2 || dbMatch.live_clock !== liveClock || dbMatch.score_pen_team1 !== penScore1 || dbMatch.score_pen_team2 !== penScore2) {
+                 await db.updateMatch({ ...dbMatch, status, score_team1: score1, score_team2: score2, score_pen_team1: penScore1, score_pen_team2: penScore2, live_clock: liveClock });
                  
                  // Automatically recalculate and update standings when a match finishes
                  if (status === 'FINISHED') {
