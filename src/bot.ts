@@ -1,4 +1,4 @@
-import { Bot, Keyboard, InlineKeyboard, InputFile } from 'grammy';
+import { Bot, Keyboard, InlineKeyboard } from 'grammy';
 import { Env, DBClient, Match } from './db';
 import { calculatePreMatchChances, calculateLiveProbability, formatLiveWinProbability, PreMatchFactors } from './probability';
 
@@ -632,7 +632,6 @@ Here are the commands you can use:
 /wctable [group] - View standings for a specific group (e.g. \`/wctable A\`)
 /state [country] - View full profile, stats, next/last match for a specific team (e.g. \`/state Germany\`)
 /chance [tag] - View live or pre-match win probabilities based on advanced factors (ELO, form, injuries). Tags: \`now\`, \`next\`, or a \`Country Name\`.
-/bracket - View the live 2026 FIFA World Cup Knockout Bracket
 
 🔍 *Inline Search*
 Type \`@yourbotname\` followed by a country name in any chat to quickly share a team's profile and stats!
@@ -723,21 +722,6 @@ The bot will automatically broadcast goals, red/yellow cards, and match period t
     await handleChance(ctx, db, query);
   });
 
-  bot.command('bracket', async (ctx) => {
-    const imageUrl = 'https://image.thum.io/get/width/1200/https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage';
-    try {
-      const loadingMsg = await ctx.reply('📸 Fetching live bracket... Please wait.', { parse_mode: 'Markdown' });
-      const res = await fetch(imageUrl);
-      if (!res.ok) throw new Error('Failed to fetch from image service');
-      const arrayBuffer = await res.arrayBuffer();
-      const buffer = new Uint8Array(arrayBuffer);
-      
-      await ctx.replyWithPhoto(new InputFile(buffer, 'bracket.jpg'), { caption: '🏆 *2026 FIFA World Cup Knockout Bracket*\n(Live via Wikipedia Screenshot)', parse_mode: 'Markdown' });
-      await ctx.api.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => {});
-    } catch (e) {
-      await ctx.reply('❌ Failed to fetch the bracket image. Please try again later.');
-    }
-  });
 
   // Handle bot being added or removed from a group/channel
   // This fires automatically when the bot is added — no need for /start in groups
