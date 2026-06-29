@@ -1,4 +1,4 @@
-import { Bot, Keyboard, InlineKeyboard } from 'grammy';
+import { Bot, Keyboard, InlineKeyboard, InputFile } from 'grammy';
 import { Env, DBClient, Match } from './db';
 import { calculatePreMatchChances, calculateLiveProbability, formatLiveWinProbability, PreMatchFactors } from './probability';
 
@@ -726,7 +726,14 @@ The bot will automatically broadcast goals, red/yellow cards, and match period t
   bot.command('bracket', async (ctx) => {
     const imageUrl = 'https://image.thum.io/get/width/1200/https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage';
     try {
-      await ctx.replyWithPhoto(imageUrl, { caption: '🏆 *2026 FIFA World Cup Knockout Bracket*\n(Live via Wikipedia Screenshot)', parse_mode: 'Markdown' });
+      const loadingMsg = await ctx.reply('📸 Fetching live bracket... Please wait.', { parse_mode: 'Markdown' });
+      const res = await fetch(imageUrl);
+      if (!res.ok) throw new Error('Failed to fetch from image service');
+      const arrayBuffer = await res.arrayBuffer();
+      const buffer = new Uint8Array(arrayBuffer);
+      
+      await ctx.replyWithPhoto(new InputFile(buffer, 'bracket.jpg'), { caption: '🏆 *2026 FIFA World Cup Knockout Bracket*\n(Live via Wikipedia Screenshot)', parse_mode: 'Markdown' });
+      await ctx.api.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => {});
     } catch (e) {
       await ctx.reply('❌ Failed to fetch the bracket image. Please try again later.');
     }
